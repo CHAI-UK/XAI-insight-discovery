@@ -1,0 +1,13 @@
+name: xai-id
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - pandas
+  - scikit-learn
+  - scikit-survival
+  - matplotlib
+  - seaborn
+  - scipy
+  - patsy
+  - shap
