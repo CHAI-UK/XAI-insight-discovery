@@ -1,0 +1,90 @@
+"""Regression tests. Run with:  pytest test_recommender.py -q
+"""
+import numpy as np
+import pandas as pd
+import pytest
+from sksurv.datasets import load_gbsg2
+from sksurv.linear_model import CoxPHSurvivalAnalysis
+from sksurv.preprocessing import OneHotEncoder
+from sklearn.model_selection import train_test_split
+
+from utils import (MetricEval, ShapleyAnalysis, strata_generate, nonlinear_analysis,
+                   interaction_analysis, check_interaction_spec)
+
+
+@pytest.fixture(scope='module')
+def gbsg2_fit():
+    X, y = load_gbsg2()
+    X = OneHotEncoder().fit_transform(X)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=20)
+    return CoxPHSurvivalAnalysis().fit(Xtr, ytr), Xte, yte
+
+
+# ---- C5: bootstrap must actually resample -----------------------------------
+def test_bootstrap_interval_has_width(gbsg2_fit):
+    model, Xte, yte = gbsg2_fit
+    obs, (lo, hi), _, boots = MetricEval(300).cal_metric_CI(model, Xte, yte, 'c-index',
+                                                            return_values=True)
+    assert hi > lo, "interval collapsed onto the point estimate"
+    assert len(np.unique(np.round(boots, 6))) > 1
+    assert lo <= obs <= hi
+
+
+# ---- M3: strata partition the input and y is subset ------------------------
+def test_strata_partition_and_alignment():
+    df = pd.DataFrame({'age': [60, 65, 65, 70, 80]})
+    X = df.copy()
+    y = np.array([(1, 1.), (0, 2.), (1, 3.), (0, 4.), (1, 5.)],
+                 dtype=[('event', '?'), ('time', '<f8')])
+    (X1, X2), (y1, y2), n_tie = strata_generate(df, 'age', X, y, 65)
+    assert len(X1) + len(X2) == len(X)
+    assert len(X1) == len(y1) and len(X2) == len(y2)
+    assert n_tie == 2
+    assert set(X1['age']) == {60, 65} and set(X2['age']) == {70, 80}
+
+
+# ---- C6b: test frame centred on the TRAINING mean ---------------------------
+def test_nonlinear_uses_training_centre():
+    tr = pd.DataFrame({'age': [10., 20., 30.]})
+    te = pd.DataFrame({'age': [100., 200.]})
+    tr_out, centre = nonlinear_analysis(tr, ['age'])
+    te_out, _ = nonlinear_analysis(te, ['age'], centre=centre)
+    assert centre == {'age': 20.0}
+    assert np.allclose(te_out['age'], [80., 180.])           # not centred on 150
+    assert np.allclose(te_out['age_quadratic'], [6400., 32400.])
+
+
+# ---- M5: exclusion rule has no dead branch and SD matches Methods -----------
+def test_exclusion_rule_upper_bound_only():
+    class _S(ShapleyAnalysis):
+        def bootstrap_analysis(self, x, stats_type='mean_abs'):
+            m = np.mean(np.abs(x)); return m * 0.9, m * 1.1
+    shapana = _S(0.05, 0.05, 0.05, random_state=0)
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({'big': rng.normal(0, 1, 500), 'tiny': rng.normal(0, 1e-4, 500)})
+    res = shapana.inclu_exclu_var(df, verbose=False)
+    assert res.set_index('feature').loc['tiny', 'recommend_exclude']
+    assert not res.set_index('feature').loc['big', 'recommend_exclude']
+    # the across-features SD is the SD of two numbers, not of 1,000 numbers
+    res_matrix = shapana.inclu_exclu_var(df, sd_definition='whole_matrix', verbose=False)
+    assert res['threshold'].iloc[0] != res_matrix['threshold'].iloc[0]
+
+
+# ---- C4: interaction spec must match the design matrix ---------------------
+def test_missing_comma_would_now_be_caught():
+    cols = ['ivdrug', 'cd4', 'priorzdv', 'raceth', 'age', 'karnof', 'sex', 'strat2']
+    bad = ['ivdrug', 'cd4', 'priorzdv' 'raceth', 'age']      # the published typo
+    lists = [['karnof'], ['karnof', 'raceth'], ['ivdrug', 'priorzdv'],
+             ['ivdrug', 'priorzdv', 'sex'], ['strat2', 'priorzdv', 'karnof', 'raceth']]
+    with pytest.raises(AssertionError):
+        check_interaction_spec(bad, lists, cols)
+    good = ['ivdrug', 'cd4', 'priorzdv', 'raceth', 'age']
+    check_interaction_spec(good, lists, cols)
+
+
+def test_interaction_analysis_raises_on_absent_column():
+    df = pd.DataFrame({'a': [1., 2.], 'b': [3., 4.]})
+    with pytest.raises(KeyError):
+        interaction_analysis(df, 'a', ['b', 'zzz'], [])
+    out = interaction_analysis(df, 'a', ['b'], [])
+    assert list(out.columns) == ['a', 'b', 'a_x_b']

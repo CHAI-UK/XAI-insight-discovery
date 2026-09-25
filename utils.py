@@ -20,7 +20,7 @@ from patsy import dmatrix
 
 # Split the dataset and fit the naive model and the recommender.
 def split_and_train(X, y, model_name, seed=20):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=seed)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=seed)
 
     model = get_model(model_name, seed)
     model.fit(X_train, y_train)
@@ -29,7 +29,7 @@ def split_and_train(X, y, model_name, seed=20):
 
 def get_model(name, seed=20):
     if name == 'rf':
-        model = RandomSurvivalForest(n_estimators=500, min_samples_split=10, min_samples_leaf=15, n_jobs=-1, random_state=seed)
+        model = RandomSurvivalForest(n_estimators=1000, min_samples_split=10, min_samples_leaf=15, n_jobs=-1, random_state=seed)
     elif name == 'cox':
         model = CoxPHSurvivalAnalysis()
     else:
@@ -204,23 +204,47 @@ class ShapleyAnalysis:
     self.pval_thresh = pval_thresh
     self.random_state = random_state
 
-  def inclu_exclu_var(self, df):
+  def inclu_exclu_var(self, df, sd_definition='across_features', verbose=True):
     """
       Generate recommendations for feature exclusion
+
+      A feature is recommended for exclusion when the upper bound of the
+      bootstrap CI of its mean absolute attribution is <= var_thresh * SD.
+
       Args:
-        shap_file: shap analysis values
-        sel_data: feature values
+        df: shap analysis values
+        sd_definition: 'across_features' (default, as described in Methods) takes
+          the SD across the per-feature mean absolute attributions;
+          'whole_matrix' reproduces the originally published code (SD over
+          every entry of |df|) for use as a sensitivity analysis.
+        verbose: print the features recommended for exclusion
 
       Returns:
-        The features that are non-linearly correlated with the outcome
+        DataFrame with one row per feature (mean_abs_attr, ci_lo, ci_hi,
+        threshold, recommend_exclude)
     """
-    eps = np.std(df.abs().to_numpy(dtype=float), ddof=1)
+    abs_df = df.abs()
+    if sd_definition == 'across_features':
+      eps = np.std(abs_df.mean(axis=0).to_numpy(dtype=float), ddof=1)
+    elif sd_definition == 'whole_matrix':
+      eps = np.std(abs_df.to_numpy(dtype=float), ddof=1)
+    else:
+      raise ValueError(f"Unknown sd_definition '{sd_definition}'")
+    threshold = self.var_thresh * eps
+
+    rows = []
     for col in df.columns:
       vals = df[col].values
       ci_lo, ci_hi = self.bootstrap_analysis(vals, stats_type='mean_abs')
-      decision = (ci_lo >= -self.var_thresh*eps) and (ci_hi <= self.var_thresh*eps)
-      if decision:
+      # the mean of absolute values is non-negative, so only the upper bound matters
+      rows.append(dict(feature=col,
+                       mean_abs_attr=float(np.mean(np.abs(vals))),
+                       ci_lo=ci_lo, ci_hi=ci_hi,
+                       threshold=threshold,
+                       recommend_exclude=bool(ci_hi <= threshold)))
+      if verbose and rows[-1]['recommend_exclude']:
         print(col)
+    return pd.DataFrame(rows)
 
   def non_linear_test(self, shap_file, sel_data):
     """
@@ -317,17 +341,26 @@ def sign_balance_test(df):
       print(col)
 
 def strata_generate(data, variable, X_test, y_test, thresh):
-  # Split datasets into two stratas
-  mask1 = (data[variable] < thresh)
-  mask2 = (data[variable] > thresh)
-  X_test_group1 = X_test[mask1]
-  X_test_group2 = X_test[mask2]
-  y_test_group1 = y_test
-  y_test_group2 = y_test
-  X_test_list = [X_test_group1, X_test_group2]
-  y_test_list = [y_test_group1, y_test_group2]
+  """
+    Split X_test (and y_test) into two strata on data[variable], using
+    (x <= thresh) / (x > thresh) so no observation is dropped.
 
-  return X_test_list, y_test_list
+    Returns:
+      X_test_list, y_test_list, n_at_threshold (number of observations
+      exactly on the threshold)
+  """
+  vals = np.asarray(data[variable], dtype=float)
+  mask1 = vals <= thresh
+  mask2 = vals > thresh
+  assert mask1.sum() + mask2.sum() == len(vals), "strata do not partition the input"
+
+  X_test_list = [X_test[mask1], X_test[mask2]]
+  y_test_list = [y_test[mask1], y_test[mask2]]
+  assert all(len(X_g) == len(y_g) for X_g, y_g in zip(X_test_list, y_test_list)), \
+    "X/y misaligned within a stratum"
+
+  n_at_threshold = int(np.sum(vals == thresh))
+  return X_test_list, y_test_list, n_at_threshold
 
 def stratify_shap_analysis(model, X_test_list, y_test_list, variable, risk_level):
     num_group = len(X_test_list)
@@ -346,58 +379,71 @@ def exclusion_analysis(data, exclu_feature):
   return data
 
 ## Integrate non-linearity recommendations on the dataset
-def nonlinear_analysis(data, nonlinear_feature, nonlinear_type='quadratic'):
-    data_cols = data.columns
+def nonlinear_analysis(data, nonlinear_feature, nonlinear_type='quadratic', centre=None):
+    """
+    Add non-linear terms.
+
+    Call on the training frame with centre=None to learn the centring values,
+    then pass the returned dict as `centre` when transforming the test frame,
+    so the test data are centred on the training means.
+
+    Returns:
+        (transformed_data, centre_dict)
+    """
+    data = data.copy()
+    learned = {} if centre is None else dict(centre)
     nonlinear_cols = []
     for feature in nonlinear_feature:
-        if feature in data_cols:
-            name = f'{feature}_{nonlinear_type}'
-            if nonlinear_type == 'quadratic':
-                data[feature] = data[feature] - data[feature].mean()
-                quad = (data[feature]**2).rename(name)
-                nonlinear_cols.append(quad.to_frame())
-            else:
-                basis = dmatrix(f"0+cr({feature}, df=3)", data,
-                                return_type="dataframe",
-                                NA_action='raise')
-                basis = basis.add_prefix(name)
-                basis = basis.reindex(data.index)
-                nonlinear_cols.append(basis)
+        if feature not in data.columns:
+            continue
+        name = f'{feature}_{nonlinear_type}'
+        if nonlinear_type == 'quadratic':
+            if feature not in learned:
+                learned[feature] = float(data[feature].mean())
+            data[feature] = data[feature] - learned[feature]
+            nonlinear_cols.append((data[feature] ** 2).rename(name).to_frame())
+        else:
+            # TODO: spline knots should also come from the training data (M4/M7)
+            basis = dmatrix(f"0+cr({feature}, df=3)", data,
+                            return_type="dataframe", NA_action='raise')
+            nonlinear_cols.append(basis.add_prefix(name).reindex(data.index))
     if nonlinear_cols:
-        nonlinear = pd.concat(nonlinear_cols, axis=1)
-        nonlinear_data = pd.concat([data, nonlinear], axis=1)
-    else:
-        nonlinear_data = data.copy()
-
-    return nonlinear_data
+        data = pd.concat([data] + nonlinear_cols, axis=1)
+    return data, learned
 
 ## Integrate interaction recommendations on the dataset
-def interaction_analysis(data, inter_feat, interact_list, nonlinear_list):
-    data_cols = data.columns
+def interaction_analysis(data, inter_feat, interact_list, nonlinear_list, strict=True):
+    """
+    Add product terms between inter_feat and each feature in interact_list.
+    With strict=True, a requested column that does not exist raises a KeyError
+    instead of being skipped silently.
+    """
+    missing = [c for c in [inter_feat] + list(interact_list) if c not in data.columns]
+    if missing and strict:
+        raise KeyError(f"interaction requested on absent column(s): {missing}")
+
     inter_cols = {}
-    for item in interact_list:
-        a = inter_feat
-        b = item
-        if a in data_cols:
-            if b in data_cols:
-                name = f'{a}_x_{b}'
-                inter_cols[name] = data[a] * data[b]
-            if a in nonlinear_list:
-                if b in nonlinear_list:
-                    name = f'{a}_quad_x_{b}_quad'
-                    inter_cols[name] = data[a + '_quadratic'] * data[b + '_quadratic']
-                else:
-                    name = f'{a}_quad_x_{b}'
-                    inter_cols[name] = data[a + '_quadratic'] * data[b]
-            else:
-                if b in nonlinear_list:
-                    name = f'{a}_x_{b}_quad'
-                    inter_cols[name] = data[a] * data[b + '_quadratic']
+    a = inter_feat
+    for b in interact_list:
+        if a in data.columns and b in data.columns:
+            inter_cols[f'{a}_x_{b}'] = data[a] * data[b]
+            if a in nonlinear_list and b in nonlinear_list:
+                inter_cols[f'{a}_quad_x_{b}_quad'] = data[a + '_quadratic'] * data[b + '_quadratic']
+            elif a in nonlinear_list:
+                inter_cols[f'{a}_quad_x_{b}'] = data[a + '_quadratic'] * data[b]
+            elif b in nonlinear_list:
+                inter_cols[f'{a}_x_{b}_quad'] = data[a] * data[b + '_quadratic']
 
-    inter = pd.DataFrame(inter_cols, index=data.index) if inter_cols else pd.DataFrame(index=data.index)
-    interact_data = pd.concat([data, inter], axis=1)
+    inter = pd.DataFrame(inter_cols, index=data.index)
+    return pd.concat([data, inter], axis=1)
 
-    return interact_data
+def check_interaction_spec(strat_features, interaction_lists, columns):
+    # Call before fitting any interaction model
+    assert len(strat_features) == len(interaction_lists), \
+        f"{len(strat_features)} stratifying features vs {len(interaction_lists)} interaction lists"
+    for a, lst in zip(strat_features, interaction_lists):
+        for b in [a] + list(lst):
+            assert b in columns, f"'{b}' is not a column in the design matrix"
 
 class CalibrationPerform:
   def __init__(self, t0, n_bins=5, kind='survival', n_boot=0,
@@ -697,39 +743,42 @@ class MetricEval:
 
         return val_obs, (lo, hi), p_two
 
-    def cal_metric_CI(self, model, data, data_y, metric):
-        # Calculate confidence intervials for the metric
+    def cal_metric_CI(self, model, data, data_y, metric, return_values=False):
+        """
+        Percentile bootstrap CI for a model's C-index on a held-out set.
+
+        Risk scores are predicted once; each replicate resamples the scores and
+        the outcome with the same indices.
+        """
+        if metric != 'c-index':
+            raise ValueError(f"metric '{metric}' not supported")
+
+        scores = np.asarray(model.predict(data), dtype=float)
+        time, event = _extract_time_event(data_y)
+        n = len(time)
+        if not (len(scores) == len(event) == n):
+            raise ValueError("X, y and predictions have inconsistent lengths")
+
+        val_obs = self.cindex(event, time, scores)
+
         boot_vals = np.empty(self.num_of_b)
-        if metric == 'c-index':
-                # Make sure shapes are consistent
-            n = data.shape[0]
+        for b in range(self.num_of_b):
+            idx = self.rng.integers(0, n, size=n)
+            # a resample with no events cannot be scored
+            if event[idx].sum() == 0:
+                boot_vals[b] = np.nan
+                continue
+            boot_vals[b] = self.cindex(event[idx], time[idx], scores[idx])
 
-            # If X / y are pandas, use .iloc
-            if hasattr(data, "iloc"):
-                get_X = lambda idx: data.iloc[idx]
-            else:
-                get_X = lambda idx: data[idx]
+        boot_vals = boot_vals[~np.isnan(boot_vals)]
+        lo, hi = np.percentile(boot_vals, [2.5, 97.5])
+        upper_tail = np.mean(boot_vals >= val_obs)
+        lower_tail = np.mean(boot_vals <= val_obs)
+        p_two = min(1.0, 2 * min(upper_tail, lower_tail))
 
-            if hasattr(y, "iloc"):
-                get_y = lambda idx: data_y.iloc[idx]
-            else:
-                get_y = lambda idx: data_y[idx]
-
-            val_obs = model.score(data, data_y)
-
-            boot_vals = np.empty(self.num_of_b)
-            for b in range(self.num_of_b):
-                idx = self.rng.integers(0, n, size=n)
-                X_b = get_X(idx)
-                y_b = get_y(idx)
-                if metric == 'c-index':
-                    boot_vals[b] = model.score(data, data_y)
-            lo, hi = np.percentile(boot_vals, [2.5, 97.5])
-            upper_tail = np.mean(boot_vals >= val_obs)
-            lower_tail = np.mean(boot_vals <= val_obs)
-            p_two = 2 * min(upper_tail, lower_tail)
-            p_two = min(1.0, p_two)
         print(f'{metric} = {val_obs:.3f} (95% CI {lo:.3f}-{hi:.3f}), p = {p_two:.4f}')
+        if return_values:
+            return val_obs, (lo, hi), p_two, boot_vals
 
     @staticmethod
     def cindex(event, time, s):
