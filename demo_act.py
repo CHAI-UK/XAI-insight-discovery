@@ -6,7 +6,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 
-from utils import load_config, save_run_config, MetricEval, CalibrationPerform, get_explanations, make_plot, ShapleyAnalysis, sign_balance_test, strata_generate, stratify_shap_analysis, nonlinear_analysis, get_model, interaction_analysis, exclusion_analysis, check_interaction_spec
+from utils import load_config, save_run_config, save_recommendations, cox_coefficient_table, MetricEval, CalibrationPerform, get_explanations, make_plot, ShapleyAnalysis, sign_balance_test, strata_generate, stratify_shap_analysis, nonlinear_analysis, get_model, interaction_analysis, exclusion_analysis, check_interaction_spec
 
 # All settings come from config.yml; the ones used are saved to results/act_run_config.json
 cfg = load_config('act')
@@ -56,14 +56,15 @@ y_sel_low = org_y[org_X.index.get_indexer(sel_data_low.index)]
 y_sel_high = org_y[org_X.index.get_indexer(sel_data_high.index)]
 
 strata_log = []
+exclusion_tests, nonlinear_tests, interaction_tests = [], [], []
 shapana = ShapleyAnalysis(cfg['exclusion_threshold'], None, cfg['interaction_p_threshold'], random_state=cfg['seed'],
                           r_thresh=cfg['nonlinear_r_threshold'], n_boot=cfg['n_bootstrap'])
 for sd_definition in ['across_features', 'whole_matrix']:
     print(f'====== Exclusion (SD {sd_definition}) ======')
-    shapana.inclu_exclu_var(df_shap_low, sd_definition=sd_definition)
-    shapana.inclu_exclu_var(df_shap_high, sd_definition=sd_definition)
-shapana.non_linear_test(df_shap_low, sel_data_low)
-shapana.non_linear_test(df_shap_high, sel_data_high)
+    exclusion_tests.append(shapana.inclu_exclu_var(df_shap_low, sd_definition=sd_definition).assign(cohort='low', sd_definition=sd_definition))
+    exclusion_tests.append(shapana.inclu_exclu_var(df_shap_high, sd_definition=sd_definition).assign(cohort='high', sd_definition=sd_definition))
+nonlinear_tests.append(shapana.non_linear_test(df_shap_low, sel_data_low).assign(cohort='low'))
+nonlinear_tests.append(shapana.non_linear_test(df_shap_high, sel_data_high).assign(cohort='high'))
 
 exclu_cols = ['hemophil']
 exclu_train = X_train.copy()
@@ -106,7 +107,8 @@ for variable, thresh in strata.items():
                            n_at_or_below=len(X_test_list[0]), n_above=len(X_test_list[1]), n_at_threshold=n_at_threshold))
     shap_file = stratify_shap_analysis(ex_model, X_test_list, y_test_list, variable, risk_level=None, margin=cfg['subgroup_margin'])
     df1, df2 = shap_file[0], shap_file[1]
-    shapana.wilcoxon_rank_sum_test(df1, df2)
+    interaction_tests.append(shapana.wilcoxon_rank_sum_test(df1, df2).assign(
+        cohort='low', stratifying_variable=variable, split_on='SHAP value', threshold=thresh))
 
 strata = {'age':0, 'karnof':-1, 'cd4':1,'tx':-0.01,'txgrp': -0.01}
 # strata = {'tx':-0.01}
@@ -118,10 +120,13 @@ for variable, thresh in strata.items():
                            n_at_or_below=len(X_test_list[0]), n_above=len(X_test_list[1]), n_at_threshold=n_at_threshold))
     shap_file = stratify_shap_analysis(ex_model, X_test_list, y_test_list, variable, risk_level=None, margin=cfg['subgroup_margin'])
     df1, df2 = shap_file[0], shap_file[1]
-    shapana.wilcoxon_rank_sum_test(df1, df2)
+    interaction_tests.append(shapana.wilcoxon_rank_sum_test(df1, df2).assign(
+        cohort='high', stratifying_variable=variable, split_on='SHAP value', threshold=thresh))
 
 # Record the analyst-chosen strata thresholds with the results
 pd.DataFrame(strata_log).to_csv(f"results/{cfg['dataset']}_strata_thresholds.csv", index=False)
+# Every exclusion, non-linearity and interaction test, as machine-readable tables
+save_recommendations(cfg, exclusion_tests, nonlinear_tests, interaction_tests)
 
 inter_feat_total = ['ivdrug', 'cd4', 'priorzdv', 'raceth', 'age']
 interaction_list_total = [['karnof'], ['karnof','raceth'],
@@ -171,7 +176,8 @@ cox_new_model.fit(X_train_interact, y_train)
 # Record the final design matrix together with the results
 print('FINAL DESIGN MATRIX COLUMNS:', list(X_train_interact.columns))
 os.makedirs('results', exist_ok=True)
-pd.Series(cox_new_model.coef_, index=X_train_interact.columns).to_csv('results/act_final_cox_coefficients.csv')
+cox_coefficient_table(cox_new_model, X_train_interact, y_train).to_csv(
+    f"results/{cfg['dataset']}_final_cox_coefficients.csv", index=False)
 
 evaluator.cal_metric_CI(cox_new_model, X_test_interact, y_test,'c-index')
 calib = CalibrationPerform(t0=cfg['calibration_t0'], n_bins=cfg['calibration_bins'], kind='survival', random_state=cfg['seed'], save_folder='plots/aids/', model_name=['Cox_org','Cox_all'])

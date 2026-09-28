@@ -9,7 +9,8 @@ from sksurv.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
 
 from utils import (MetricEval, ShapleyAnalysis, strata_generate, nonlinear_analysis,
-                   interaction_analysis, check_interaction_spec, load_config, get_model)
+                   interaction_analysis, check_interaction_spec, load_config, get_model,
+                   cox_coefficient_table, adjust_p_bh, save_recommendations)
 
 
 @pytest.fixture(scope='module')
@@ -135,3 +136,67 @@ def test_forest_needs_config_hyperparameters():
         get_model('rf', 20)
     rsf = get_model('rf', 20, **load_config('gbsg2')['rsf'])
     assert (rsf.n_estimators, rsf.min_samples_split, rsf.min_samples_leaf) == (1000, 10, 15)
+
+
+# ---- C16: recommendations and coefficients as tables ------------------------
+def test_screens_return_full_tables():
+    shapana = ShapleyAnalysis(0.05, None, 0.05, random_state=0)
+    x = np.linspace(-1, 1, 201)                                  # symmetric: corr(x, x^2) = 0
+    shap_df = pd.DataFrame({'lin': 2 * x, 'u': x ** 2 - 1})
+    res = shapana.non_linear_test(shap_df, pd.DataFrame({'lin': x, 'u': x}))
+    assert list(res['feature']) == ['lin', 'u']                  # every feature, not only flagged
+    assert list(res['recommend_nonlinear']) == [False, True]
+
+    df1 = pd.DataFrame({'a': [1., 2., 3.], 'b': [0., 0., 0.]})
+    df2 = pd.DataFrame({'a': [4., 5., 6., 7.], 'b': [0., 0., 0., 0.]})
+    res = shapana.wilcoxon_rank_sum_test(df1, df2).set_index('feature')
+    assert res.loc['a', 'rank_biserial'] == -1.0                   # every df1 value below df2
+    assert (res.loc['a', 'n_stratum1'], res.loc['a', 'n_stratum2']) == (3, 4)
+    assert len(res) == 2
+
+
+def test_bh_adjustment_keeps_untested_as_nan():
+    adj = adjust_p_bh([0.01, np.nan, 0.04, 0.03])
+    assert np.isnan(adj[1])
+    assert np.allclose(adj[[0, 2, 3]], [0.03, 0.04, 0.04])
+
+
+def test_save_recommendations_writes_tables(tmp_path):
+    exc = [pd.DataFrame({'feature': ['a'], 'recommend_exclude': [True]}).assign(cohort='low', sd_definition='across_features')]
+    nl = [pd.DataFrame({'feature': ['a'], 'r': [0.05]}).assign(cohort='low')]
+    inter = [pd.DataFrame({'feature': ['a', 'b'], 'p_value': [0.01, 0.2], 'recommended': [True, False]})
+             .assign(cohort='high', stratifying_variable='a', split_on='SHAP value', threshold=0)]
+    tables = save_recommendations({'dataset': 'demo'}, exc, nl, inter, out_dir=tmp_path)
+    assert {f.name for f in tmp_path.iterdir()} == {'demo_exclusion.csv', 'demo_nonlinearity.csv', 'demo_interactions.csv'}
+    t = tables['interactions']
+    assert list(t.columns[:4]) == ['cohort', 'stratifying_variable', 'split_on', 'threshold']
+    assert list(t['is_stratifying_variable']) == [True, False]
+    assert np.allclose(t['p_adj_bh'], [0.02, 0.2])
+
+
+def _breslow_loglik(beta, X, time, event):
+    eta = X @ beta
+    risk = np.array([np.log(np.sum(np.exp(eta[time >= t]))) for t in time])
+    return np.sum(event * (eta - risk))
+
+
+def test_cox_table_matches_numerical_information():
+    rng = np.random.default_rng(3)
+    X = pd.DataFrame(rng.normal(size=(150, 3)), columns=['a', 'b', 'c'])
+    time = np.ceil(rng.exponential(np.exp(-(X.to_numpy() @ [0.6, -0.4, 0.0]))) * 4)   # tied times
+    event = rng.random(150) < 0.8
+    y = np.array(list(zip(event, time)), dtype=[('event', '?'), ('time', '<f8')])
+    model = CoxPHSurvivalAnalysis().fit(X, y)
+    tab = cox_coefficient_table(model, X, y)
+
+    b, h, Xa = model.coef_, 1e-4, X.to_numpy()
+    H = np.empty((3, 3))
+    for i in range(3):
+        for j in range(3):
+            ei, ej = np.eye(3)[i] * h, np.eye(3)[j] * h
+            H[i, j] = (_breslow_loglik(b + ei + ej, Xa, time, event) - _breslow_loglik(b + ei - ej, Xa, time, event)
+                       - _breslow_loglik(b - ei + ej, Xa, time, event) + _breslow_loglik(b - ei - ej, Xa, time, event)) / (4 * h * h)
+    se_numeric = np.sqrt(np.diag(np.linalg.inv(-H)))
+    assert np.allclose(tab['se'], se_numeric, rtol=1e-4)
+    assert np.allclose(tab['hr'], np.exp(model.coef_))
+    assert (tab['hr_ci_lo'] < tab['hr']).all() and (tab['hr'] < tab['hr_ci_hi']).all()

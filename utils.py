@@ -12,7 +12,7 @@ import seaborn as sns
 
 from sklearn.utils import resample
 
-from scipy.stats import gaussian_kde, binomtest, mannwhitneyu, pearsonr
+from scipy.stats import gaussian_kde, binomtest, mannwhitneyu, pearsonr, norm, false_discovery_control
 
 from sksurv.ensemble import RandomSurvivalForest
 from sksurv.linear_model import CoxPHSurvivalAnalysis
@@ -307,12 +307,19 @@ class ShapleyAnalysis:
         sel_data: feature values
 
       Returns:
-        The features that are non-linearly correlated with the outcome
+        DataFrame with one row per feature (r, p_value, recommend_nonlinear);
+        a feature is flagged when |r| between its values and its SHAP values
+        is below r_thresh. Flagged features are also printed.
     """
+    rows = []
     for c in shap_file.columns:
       corr = pearsonr(shap_file[c].to_numpy(), sel_data[c].to_numpy())
-      if np.abs(corr[0]) < self.r_thresh:
+      flag = bool(np.abs(corr[0]) < self.r_thresh)
+      rows.append(dict(feature=c, n=len(shap_file), r=float(corr[0]), p_value=float(corr[1]),
+                       recommend_nonlinear=flag))
+      if flag:
         print(f'{c}: {corr[0]:.2f} ({corr[1]:.2f})')
+    return pd.DataFrame(rows)
 
   def wilcoxon_rank_sum_test(self, df1, df2):
     """
@@ -322,17 +329,29 @@ class ShapleyAnalysis:
         df1, df2: shap analysis files for two populations after stratification.
 
       Returns:
-        The features that are interacted with the stratified feature
+        DataFrame with one row per feature tested: stratum sizes, mean SHAP
+        per stratum, Mann-Whitney U (for df1), rank-biserial correlation
+        (P(df1 > df2) - P(df1 < df2)), raw two-sided P and whether it passes
+        pval_thresh. Features passing are also printed.
     """
+    rows = []
     for col in df1.columns:
         val1 = df1[col].to_numpy()
         val2 = df2[col].to_numpy()
+        n1, n2 = len(val1), len(val2)
 
-        if len(val1) == 0 or len(val2) == 0:
-            continue
-        stat, p = mannwhitneyu(val1, val2, method='asymptotic', alternative='two-sided')
-        if p <= self.pval_thresh:
-            print(col)
+        row = dict(feature=col, n_stratum1=n1, n_stratum2=n2,
+                   mean_shap_stratum1=float(np.mean(val1)) if n1 else np.nan,
+                   mean_shap_stratum2=float(np.mean(val2)) if n2 else np.nan,
+                   u_statistic=np.nan, rank_biserial=np.nan, p_value=np.nan, recommended=False)
+        if n1 and n2:
+            stat, p = mannwhitneyu(val1, val2, method='asymptotic', alternative='two-sided')
+            row.update(u_statistic=float(stat), rank_biserial=float(2 * stat / (n1 * n2) - 1),
+                       p_value=float(p), recommended=bool(p <= self.pval_thresh))
+            if row['recommended']:
+                print(col)
+        rows.append(row)
+    return pd.DataFrame(rows)
 
   def bootstrap_analysis(self, x, b=1000, alpha=0.05, stats_type='median_abs'):
     """
@@ -863,3 +882,79 @@ class MetricEval:
     def cindex(event, time, s):
         c, *_ = concordance_index_censored(event, time, s)
         return c
+
+def cox_coefficient_table(model, X, y, alpha=0.05):
+    """
+    Coefficient table for a fitted, unpenalised sksurv CoxPHSurvivalAnalysis:
+    coefficient, SE, hazard ratio with Wald (1 - alpha) CI, z and P.
+
+    SEs come from the observed information of the Breslow partial likelihood
+    (the likelihood sksurv maximises), evaluated at the fitted coefficients
+    and on the data the model was fitted on.
+    """
+    if getattr(model, 'alpha', 0) != 0 or getattr(model, 'ties', 'breslow') != 'breslow':
+        raise NotImplementedError('SEs are only valid for an unpenalised model with Breslow ties')
+
+    time, event = _extract_time_event(y)
+    Xa = np.asarray(X, dtype=float)
+    beta = np.asarray(model.coef_, dtype=float)
+
+    order = np.argsort(-time, kind='stable')          # latest time first
+    t, d, Xs = time[order], event[order], Xa[order]
+    eta = Xs @ beta
+    w = np.exp(eta - eta.max())                       # the scale cancels below
+
+    # risk-set sums for t_j >= t_i, taken at the end of each tie group
+    last = np.searchsorted(-t, -t, side='right') - 1
+    S0 = np.cumsum(w)[last]
+    S1 = np.cumsum(w[:, None] * Xs, axis=0)[last]
+
+    # I = sum_j w_j c_j x_j x_j' - sum_i d_i S1_i S1_i' / S0_i^2,
+    # with c_j = sum over events i at or before t_j of 1 / S0_i
+    inv_S0 = np.where(d, 1.0 / S0, 0.0)
+    c = np.cumsum(inv_S0[::-1])[::-1]
+    c = c[np.searchsorted(-t, -t, side='left')]       # include every event tied with t_j
+    info = (Xs * (w * c)[:, None]).T @ Xs - (S1 * (d / S0 ** 2)[:, None]).T @ S1
+
+    se = np.sqrt(np.diag(np.linalg.inv(info)))
+    z = beta / se
+    q = norm.ppf(1 - alpha / 2)
+    return pd.DataFrame({'term': list(X.columns), 'coef': beta, 'se': se,
+                         'hr': np.exp(beta),
+                         'hr_ci_lo': np.exp(beta - q * se), 'hr_ci_hi': np.exp(beta + q * se),
+                         'z': z, 'p_value': 2 * norm.sf(np.abs(z))})
+
+def adjust_p_bh(p):
+    # Benjamini-Hochberg adjusted P values; NaN (untested) entries stay NaN
+    p = np.asarray(p, dtype=float)
+    out = np.full_like(p, np.nan)
+    ok = ~np.isnan(p)
+    if ok.any():
+        out[ok] = false_discovery_control(p[ok], method='bh')
+    return out
+
+def save_recommendations(cfg, exclusion, nonlinearity, interactions, out_dir='results'):
+    """
+    Write the recommender output as machine-readable tables:
+      <dataset>_exclusion.csv     every feature, per cohort and SD definition
+      <dataset>_nonlinearity.csv  every feature, per cohort
+      <dataset>_interactions.csv  every test in the interaction screen, with its
+                                  stratifying variable and cut point, and BH-adjusted
+                                  P across all tests in this dataset's screen
+    Each argument is a list of DataFrames, as returned by the ShapleyAnalysis methods
+    with identifying columns (cohort, ...) already added.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    inter = pd.concat(interactions, ignore_index=True)
+    inter['is_stratifying_variable'] = inter['feature'] == inter['stratifying_variable']
+    inter.insert(inter.columns.get_loc('p_value') + 1, 'p_adj_bh', adjust_p_bh(inter['p_value']))
+
+    tables = {'exclusion': pd.concat(exclusion, ignore_index=True),
+              'nonlinearity': pd.concat(nonlinearity, ignore_index=True),
+              'interactions': inter}
+    id_cols = ['cohort', 'sd_definition', 'stratifying_variable', 'split_on', 'threshold']
+    for name, df in tables.items():
+        df = df[[c for c in id_cols if c in df] + [c for c in df if c not in id_cols]]
+        df.to_csv(os.path.join(out_dir, f"{cfg['dataset']}_{name}.csv"), index=False)
+        tables[name] = df
+    return tables
