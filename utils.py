@@ -1,11 +1,15 @@
 import os
+import json
+import platform
+from importlib.metadata import version
+
+import yaml
 import shap
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 
 from scipy.stats import gaussian_kde, binomtest, mannwhitneyu, pearsonr
@@ -18,18 +22,62 @@ from sksurv.nonparametric import kaplan_meier_estimator
 from patsy import dmatrix
 
 
-# Split the dataset and fit the naive model and the recommender.
-def split_and_train(X, y, model_name, seed=20):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=seed)
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.yml')
 
-    model = get_model(model_name, seed)
-    model.fit(X_train, y_train)
+def _null_settings(d, prefix=''):
+    out = []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            out += _null_settings(v, f'{prefix}{k}.')
+        elif v is None:
+            out.append(prefix + k)
+    return out
 
-    return model, (X_train, y_train), (X_test, y_test)
+def load_config(dataset, path=CONFIG_PATH):
+    """
+    Settings for `dataset`: the 'common' block of config.yml overlaid with the
+    dataset's own block. Raises if any setting is still null (unconfirmed).
+    """
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+    if dataset not in raw:
+        raise KeyError(f"no '{dataset}' section in {path}")
 
-def get_model(name, seed=20):
+    cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in raw['common'].items()}
+    for k, v in raw[dataset].items():
+        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+            cfg[k].update(v)
+        else:
+            cfg[k] = v
+
+    unconfirmed = _null_settings(cfg)
+    if unconfirmed:
+        raise ValueError(f"'{dataset}' settings not yet confirmed in {path}: {unconfirmed}")
+    cfg['dataset'] = dataset
+    return cfg
+
+def save_run_config(cfg, out_dir='results'):
+    # Record the settings and package versions this run used
+    record = dict(cfg,
+                  python=platform.python_version(),
+                  packages={p: version(p) for p in ['numpy', 'pandas', 'scikit-learn',
+                                                    'scikit-survival', 'shap', 'scipy']})
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{cfg['dataset']}_run_config.json")
+    with open(path, 'w') as f:
+        json.dump(record, f, indent=2)
+    return path
+
+def get_model(name, seed, **rsf_params):
+    """
+    rsf_params are the RSF hyperparameters from config.yml, e.g.
+    get_model('rf', cfg['seed'], **cfg['rsf']). They are required for 'rf' so
+    the forest never falls back silently to library defaults.
+    """
     if name == 'rf':
-        model = RandomSurvivalForest(n_estimators=1000, min_samples_split=10, min_samples_leaf=15, n_jobs=-1, random_state=seed)
+        if not rsf_params:
+            raise ValueError("pass the RSF hyperparameters from config.yml: get_model('rf', cfg['seed'], **cfg['rsf'])")
+        model = RandomSurvivalForest(**rsf_params, n_jobs=-1, random_state=seed)
     elif name == 'cox':
         model = CoxPHSurvivalAnalysis()
     else:
@@ -192,17 +240,21 @@ def make_plot(df_shap, org_df, filename, plot_type='scatter', xlabel='SHAP value
     ax.spines['right'].set_visible(False)
 
     plt.grid(True, axis='both', linestyle='--', alpha=0.5)
-    plt.savefig(f'plots/{filename}.png', dpi=1000)
     plt.tight_layout()
-    plt.show()
+    os.makedirs('plots', exist_ok=True)
+    plt.savefig(f'plots/{filename}.png', dpi=1000)
+    # save only, so the demo scripts never block on a plot window
+    plt.close(fig)
 
 class ShapleyAnalysis:
   # Tools used for generating recommendations
-  def __init__(self, var_threshold, prop_thresh, pval_thresh, random_state):
+  def __init__(self, var_threshold, prop_thresh, pval_thresh, random_state, r_thresh=0.1, n_boot=1000):
     self.var_thresh = var_threshold
     self.prop_thresh = prop_thresh
     self.pval_thresh = pval_thresh
     self.random_state = random_state
+    self.r_thresh = r_thresh
+    self.n_boot = n_boot
 
   def inclu_exclu_var(self, df, sd_definition='across_features', verbose=True):
     """
@@ -235,7 +287,7 @@ class ShapleyAnalysis:
     rows = []
     for col in df.columns:
       vals = df[col].values
-      ci_lo, ci_hi = self.bootstrap_analysis(vals, stats_type='mean_abs')
+      ci_lo, ci_hi = self.bootstrap_analysis(vals, b=self.n_boot, stats_type='mean_abs')
       # the mean of absolute values is non-negative, so only the upper bound matters
       rows.append(dict(feature=col,
                        mean_abs_attr=float(np.mean(np.abs(vals))),
@@ -259,7 +311,7 @@ class ShapleyAnalysis:
     """
     for c in shap_file.columns:
       corr = pearsonr(shap_file[c].to_numpy(), sel_data[c].to_numpy())
-      if np.abs(corr[0]) < 0.1:
+      if np.abs(corr[0]) < self.r_thresh:
         print(f'{c}: {corr[0]:.2f} ({corr[1]:.2f})')
 
   def wilcoxon_rank_sum_test(self, df1, df2):
@@ -362,13 +414,14 @@ def strata_generate(data, variable, X_test, y_test, thresh):
   n_at_threshold = int(np.sum(vals == thresh))
   return X_test_list, y_test_list, n_at_threshold
 
-def stratify_shap_analysis(model, X_test_list, y_test_list, variable, risk_level):
+def stratify_shap_analysis(model, X_test_list, y_test_list, variable, risk_level, margin=None):
+    # margin (config subgroup_margin) is only used when risk_level is 'low' or 'high'
     num_group = len(X_test_list)
     strata_shap = []
     for i in range(num_group):
         X_test = X_test_list[i]
         y_test = y_test_list[i]
-        shap_file, sel_data = get_explanations(model, X_test, y_test, eps=0.05, risk_level=risk_level)
+        shap_file, sel_data = get_explanations(model, X_test, y_test, eps=margin, risk_level=risk_level)
         # make_plot(shap_file, sel_data, f'aids_shap_{i}_low', plot_type='violin', xlabel='SHAP value', figsize=(8, 6))
         strata_shap.append(shap_file)
     return strata_shap
@@ -668,12 +721,14 @@ class CalibrationPerform:
               ax.vlines(bin_pred, lo, hi, alpha=0.6)
               # ax.set_xlim(0.5, 1.0)
               # ax.set_ylim(0.5, 1.0)
-          plt.savefig(
-              os.path.join(self.save_folder,
-                          f'Calibration_plot_{self.model_name}.pdf'),
-              dpi=1000,
-              bbox_inches='tight'
-          )
+          if self.save_folder is not None:
+              os.makedirs(self.save_folder, exist_ok=True)
+              plt.savefig(
+                  os.path.join(self.save_folder,
+                              f'Calibration_plot_{self.model_name}.pdf'),
+                  dpi=1000,
+                  bbox_inches='tight'
+              )
 
   def quantile_bins(self, x):
       qs = np.linspace(0, 1, self.n_bins + 1)

@@ -9,7 +9,7 @@ from sksurv.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
 
 from utils import (MetricEval, ShapleyAnalysis, strata_generate, nonlinear_analysis,
-                   interaction_analysis, check_interaction_spec)
+                   interaction_analysis, check_interaction_spec, load_config, get_model)
 
 
 @pytest.fixture(scope='module')
@@ -72,7 +72,7 @@ def test_interaction_uses_training_centre():
 # ---- M5: exclusion rule has no dead branch and SD matches Methods -----------
 def test_exclusion_rule_upper_bound_only():
     class _S(ShapleyAnalysis):
-        def bootstrap_analysis(self, x, stats_type='mean_abs'):
+        def bootstrap_analysis(self, x, b=None, stats_type='mean_abs'):
             m = np.mean(np.abs(x)); return m * 0.9, m * 1.1
     shapana = _S(0.05, 0.05, 0.05, random_state=0)
     rng = np.random.default_rng(0)
@@ -111,3 +111,27 @@ def test_interaction_analysis_logs_constructed_terms(capsys):
     assert "Interaction terms for a: ['a_x_b', 'a_x_b_quad']" in capsys.readouterr().out
     interaction_analysis(df, 'a', ['b'], ['b'], verbose=False)
     assert capsys.readouterr().out == ''
+
+
+# ---- C07: one config, values as stated in the paper -------------------------
+@pytest.mark.parametrize('dataset', ['gbsg2', 'act'])
+def test_config_matches_paper(dataset):
+    cfg = load_config(dataset)
+    assert cfg['test_size'] == 0.20
+    assert cfg['n_bootstrap'] == 1000
+    assert cfg['rsf']['n_estimators'] == 1000
+    assert cfg['exclusion_threshold'] == 0.05
+    assert cfg['nonlinear_r_threshold'] == 0.1
+    assert cfg['interaction_p_threshold'] == 0.05
+
+
+def test_unconfirmed_settings_are_refused():
+    with pytest.raises(ValueError, match='not yet confirmed'):
+        load_config('dataloch')
+
+
+def test_forest_needs_config_hyperparameters():
+    with pytest.raises(ValueError):
+        get_model('rf', 20)
+    rsf = get_model('rf', 20, **load_config('gbsg2')['rsf'])
+    assert (rsf.n_estimators, rsf.min_samples_split, rsf.min_samples_leaf) == (1000, 10, 15)

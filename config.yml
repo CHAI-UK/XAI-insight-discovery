@@ -1,0 +1,44 @@
+# Settings for every analysis in this repository.
+# The demo scripts read this file through utils.load_config(), so the values
+# below are the only place these settings are defined. Each run writes the
+# settings it actually used to results/<dataset>_run_config.json.
+
+common:
+  seed: 20                    # train/test split, RSF, bootstrap resampling, SHAP sampling
+  test_size: 0.20             # 80% training / 20% held-out test
+  n_bootstrap: 1000           # replicates for every 95% percentile interval
+  rsf:                        # exploratory Random Survival Forest (sksurv)
+    n_estimators: 1000
+    min_samples_split: 10
+    min_samples_leaf: 15
+  exclusion_threshold: 0.05   # exclude if the CI upper bound of mean |SHAP| <= this x SD
+                              # of the per-feature mean |SHAP| values
+  nonlinear_r_threshold: 0.1  # |Pearson r| between feature and SHAP below this -> non-linear
+  interaction_p_threshold: 0.05
+  calibration_bins: 5
+
+# Subgroup margin: a training patient joins the low- (high-) risk cohort when
+# |predicted risk - risk of the mean non-event (event) patient| < margin x SD of
+# predicted risk within that group. The public cohorts are small, so they use
+# wider margins than DataLoch to keep enough patients in each cohort.
+
+gbsg2:
+  subgroup_margin: 0.2
+  calibration_t0: 1500        # days
+
+act:
+  subgroup_margin: 0.1
+  calibration_t0: 320         # days
+
+# DataLoch runs outside this repository. Record here the settings that run
+# actually used; null means not yet confirmed.
+dataloch:
+  seed: null
+  test_size: null             # Methods state 80/20
+  n_bootstrap: null           # Methods state 1000
+  rsf:
+    n_estimators: null        # Methods state 1000
+    min_samples_split: null
+    min_samples_leaf: null
+  subgroup_margin: null       # Methods state 0.05; Figure 5 caption states 0.01
+  calibration_t0: null
