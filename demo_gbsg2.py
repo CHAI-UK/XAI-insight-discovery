@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 from sksurv.preprocessing import OneHotEncoder
 
-from utils import load_config, save_run_config, save_recommendations, cox_coefficient_table, recommended_exclusions, screen_skips, MetricEval, CalibrationPerform, get_explanations, make_plot, ShapleyAnalysis, sign_balance_test, strata_generate, stratify_shap_analysis, nonlinear_analysis, get_model, interaction_analysis, check_interaction_spec
+from utils import exclusion_analysis, load_config, save_run_config, save_recommendations, cox_coefficient_table, recommended_exclusions, recommended_nonlinear, recommended_interactions, save_model_spec, screen_skips, MetricEval, CalibrationPerform, get_explanations, make_plot, ShapleyAnalysis, sign_balance_test, strata_generate, stratify_shap_analysis, nonlinear_analysis, get_model, interaction_analysis, check_interaction_spec
 
 # All settings come from config.yml; the ones used are saved to results/gbsg2_run_config.json.
 # Run with --quick for a fast debugging run (results go to results_quick/, not for reporting).
@@ -80,6 +80,8 @@ nonlinear_tests.append(shapana.non_linear_test(df_shap_high, sel_data_high).assi
 # Excluded features are not tested as interaction partners, nor used in interaction terms
 excluded = recommended_exclusions(exclusion_tests)
 print('Recommended for exclusion:', excluded)
+nonlinear_feature = recommended_nonlinear(nonlinear_tests, X_train, excluded)
+print('Recommended squared terms:', nonlinear_feature)
 
 print('====== Low risk cohort ======')
 sign_balance_test(df_shap_low)
@@ -117,9 +119,12 @@ for variable, thresh in strata.items():
 # Record the analyst-chosen strata thresholds with the results
 pd.DataFrame(strata_log).to_csv(os.path.join(cfg['results_dir'], f"{cfg['dataset']}_strata_thresholds.csv"), index=False)
 # Every exclusion, non-linearity and interaction test, as machine-readable tables
-save_recommendations(cfg, exclusion_tests, nonlinear_tests, interaction_tests)
+rec_tables = save_recommendations(cfg, exclusion_tests, nonlinear_tests, interaction_tests)
 
-nonlinear_feature = ['age']
+# The model specification comes from the screen output, not from hand-typed lists
+inter_feat_total, interaction_list_total = recommended_interactions(rec_tables['interactions'])
+save_model_spec(cfg, excluded, nonlinear_feature, inter_feat_total, interaction_list_total)
+
 nonlinear_train = X_train.copy()
 nonlinear_test = X_test.copy()
 X_train_nonlinear, centre = nonlinear_analysis(nonlinear_train, nonlinear_feature, nonlinear_type='quadratic')
@@ -132,11 +137,7 @@ calib = CalibrationPerform(t0=cfg['calibration_t0'], n_bins=cfg['calibration_bin
 calib.calib_plot([org_model, cox_new_model], [[X_test, y_test], [X_test_nonlinear,y_test]])
 calib.calib_estimate(cox_new_model, X_test_nonlinear, y_test)
 
-inter_feat_total = ['age','estrec','progrec', 'horTh']
-interaction_list_total = [['tsize'], ['pnodes', 'age'],
- ['age', 'pnodes', 'estrec', 'horTh', 'tgrade', 'menostat'],['menostat','tsize', 'tgrade','pnodes', 'age']]
 non_linear_list = []
-# non_linear_list = ['age', 'tsize']
 X_test_interact = X_test.copy()
 X_train_interact = X_train.copy()
 check_interaction_spec(inter_feat_total, interaction_list_total, X_train_interact.columns, excluded=excluded)
@@ -154,12 +155,9 @@ calib = CalibrationPerform(t0=cfg['calibration_t0'], n_bins=cfg['calibration_bin
 calib.calib_plot([org_model, cox_new_model], [[X_test, y_test], [X_test_interact,y_test]])
 calib.calib_estimate(cox_new_model, X_test_interact, y_test)
 
-inter_feat_total = ['age','estrec','progrec', 'horTh']
-interaction_list_total = [['tsize'], ['pnodes', 'age'],
- ['age', 'pnodes', 'estrec', 'horTh', 'tgrade', 'menostat'],['menostat','tsize', 'tgrade','pnodes', 'age']]
-non_linear_list = ['age']
-X_test_interact = X_test_nonlinear.copy()
-X_train_interact = X_train_nonlinear.copy()
+non_linear_list = nonlinear_feature
+X_test_interact = exclusion_analysis(X_test_nonlinear, excluded)
+X_train_interact = exclusion_analysis(X_train_nonlinear, excluded)
 check_interaction_spec(inter_feat_total, interaction_list_total, X_train_interact.columns, excluded=excluded)
 for i in range(len(inter_feat_total)):
   inter_feat = inter_feat_total[i]

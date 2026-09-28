@@ -562,6 +562,53 @@ def recommended_exclusions(exclusion_tables, sd_definition='across_features'):
     flagged = exc.groupby('feature')['recommend_exclude'].all()
     return sorted(flagged[flagged].index)
 
+def recommended_nonlinear(nonlinear_tables, X, excluded=()):
+    """
+    Features flagged as non-linear in any cohort, for nonlinear_analysis.
+    Excluded features get no squared term, and neither do binary features:
+    the centred square of a two-valued feature is a linear function of it and
+    would duplicate the main effect.
+    """
+    nl = pd.concat(nonlinear_tables, ignore_index=True)
+    out = []
+    for f in dict.fromkeys(nl.loc[nl['recommend_nonlinear'], 'feature']):
+        if f in excluded:
+            print(f'  no squared term for {f} (excluded feature)')
+        elif X[f].nunique() <= 2:
+            print(f'  no squared term for {f} (binary feature)')
+        else:
+            out.append(f)
+    return out
+
+def recommended_interactions(interaction_table):
+    """
+    Pairs recommended by the interaction screen, as (strat_features,
+    interaction_lists) for check_interaction_spec / interaction_analysis.
+    Each unordered pair appears once, under the first stratifying variable
+    (in screen order) that recommended it.
+    """
+    rec = interaction_table[interaction_table['recommended']]
+    seen, spec = set(), {}
+    for a, b in zip(rec['stratifying_variable'], rec['feature']):
+        pair = frozenset((a, b))
+        if a != b and pair not in seen:
+            seen.add(pair)
+            spec.setdefault(a, []).append(b)
+    return list(spec), list(spec.values())
+
+def save_model_spec(cfg, excluded, nonlinear, strat_features, interaction_lists, out_dir=None):
+    # Record the model specification generated from the screen output
+    out_dir = out_dir or cfg['results_dir']
+    os.makedirs(out_dir, exist_ok=True)
+    spec = dict(excluded=list(excluded), squared_terms=list(nonlinear),
+                interactions={a: list(l) for a, l in zip(strat_features, interaction_lists)},
+                n_interaction_pairs=sum(len(l) for l in interaction_lists))
+    path = os.path.join(out_dir, f"{cfg['dataset']}_model_spec.json")
+    with open(path, 'w') as f:
+        json.dump(spec, f, indent=2)
+    print('Model specification:', spec)
+    return spec
+
 def screen_skips(variable, excluded):
     # Features not tested when stratifying on `variable`
     skip = {f: 'excluded feature' for f in excluded}

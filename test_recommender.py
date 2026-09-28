@@ -11,7 +11,8 @@ from sklearn.model_selection import train_test_split
 from utils import (MetricEval, ShapleyAnalysis, strata_generate, nonlinear_analysis,
                    interaction_analysis, check_interaction_spec, load_config, get_model,
                    cox_coefficient_table, adjust_p_bh, save_recommendations,
-                   recommended_exclusions, screen_skips)
+                   recommended_exclusions, screen_skips, recommended_nonlinear,
+                   recommended_interactions)
 
 
 @pytest.fixture(scope='module')
@@ -236,3 +237,22 @@ def test_quick_mode_is_separate_from_full():
     assert quick['subgroup_margin'] == full['subgroup_margin']                   # dataset values kept
     assert quick['results_dir'] != full['results_dir'] and quick['plots_dir'] != full['plots_dir']
     assert quick['quick'] and not full['quick']
+
+
+# ---- Model specification generated from the screen output (R1.6(c)) --------
+def test_recommended_nonlinear_skips_binary_and_excluded():
+    tab = lambda cohort, flags: pd.DataFrame({'feature': ['age', 'sex', 'drug', 'bmi'],
+                                              'recommend_nonlinear': flags}).assign(cohort=cohort)
+    X = pd.DataFrame({'age': [50., 60., 70.], 'sex': [0., 1., 0.], 'drug': [1., 2., 3.], 'bmi': [20., 25., 30.]})
+    tables = [tab('low', [True, True, True, False]), tab('high', [False, False, False, True])]
+    assert recommended_nonlinear(tables, X, excluded=['drug']) == ['age', 'bmi']   # flagged in any cohort
+
+
+def test_recommended_interactions_dedupes_unordered_pairs():
+    t = pd.DataFrame({'stratifying_variable': ['age', 'age', 'sex', 'sex', 'bmi'],
+                      'feature':              ['sex', 'bmi', 'age', 'bmi', 'age'],
+                      'recommended':          [True,  False, True,  True,  True]})
+    feats, lists = recommended_interactions(t)
+    assert (feats, lists) == (['age', 'sex', 'bmi'], [['sex'], ['bmi'], ['age']])
+    pairs = [frozenset((a, b)) for a, l in zip(feats, lists) for b in l]
+    assert len(pairs) == len(set(pairs)) == 3
