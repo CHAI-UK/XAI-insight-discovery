@@ -33,10 +33,11 @@ def _null_settings(d, prefix=''):
             out.append(prefix + k)
     return out
 
-def load_config(dataset, path=CONFIG_PATH):
+def load_config(dataset, quick=False, path=CONFIG_PATH):
     """
     Settings for `dataset`: the 'common' block of config.yml overlaid with the
-    dataset's own block. Raises if any setting is still null (unconfirmed).
+    dataset's own block and, with quick=True, the 'quick' debugging block.
+    Raises if any setting is still null (unconfirmed).
     """
     with open(path) as f:
         raw = yaml.safe_load(f)
@@ -44,20 +45,25 @@ def load_config(dataset, path=CONFIG_PATH):
         raise KeyError(f"no '{dataset}' section in {path}")
 
     cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in raw['common'].items()}
-    for k, v in raw[dataset].items():
-        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-            cfg[k].update(v)
-        else:
-            cfg[k] = v
+    for block in [raw[dataset]] + ([raw['quick']] if quick else []):
+        for k, v in block.items():
+            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
 
     unconfirmed = _null_settings(cfg)
     if unconfirmed:
         raise ValueError(f"'{dataset}' settings not yet confirmed in {path}: {unconfirmed}")
     cfg['dataset'] = dataset
+    cfg['quick'] = quick
+    if quick:
+        print(f"QUICK MODE: debugging settings, results in {cfg['results_dir']}/ - do not report them")
     return cfg
 
-def save_run_config(cfg, out_dir='results'):
+def save_run_config(cfg, out_dir=None):
     # Record the settings and package versions this run used
+    out_dir = out_dir or cfg['results_dir']
     record = dict(cfg,
                   python=platform.python_version(),
                   packages={p: version(p) for p in ['numpy', 'pandas', 'scikit-learn',
@@ -136,7 +142,8 @@ def _extract_time_event(y):
 
     raise TypeError("Unsupported type for y. Use a sksurv structured array or a pandas DataFrame.")
 
-def get_explanations(model, X_test, y_test, eps, risk_level='low'):
+def get_explanations(model, X_test, y_test, eps, risk_level='low', max_rows=0, seed=None):
+    # max_rows > 0 explains a random subset of at most max_rows patients (quick mode)
     names = list(y_test.dtype.names)
     if risk_level == 'high':
         risk_data = X_test[y_test[names[0]] == 1]
@@ -166,6 +173,9 @@ def get_explanations(model, X_test, y_test, eps, risk_level='low'):
     else:
         sel_data = X_test
 
+    if max_rows and len(sel_data) > max_rows:
+        sel_data = sel_data.sample(n=max_rows, random_state=seed)
+
     ex = shap.KernelExplainer(model.predict, X_mean)
     explanation = ex(sel_data)
     df_shap = pd.DataFrame(explanation.values, columns=X_test.columns)
@@ -173,7 +183,7 @@ def get_explanations(model, X_test, y_test, eps, risk_level='low'):
     # get SHAP values of the selected individuals (delta_R close to 0)
     return df_shap, sel_data
 
-def make_plot(df_shap, org_df, filename, plot_type='scatter', xlabel='SHAP value', figsize=(4, 3)):
+def make_plot(df_shap, org_df, filename, plot_type='scatter', xlabel='SHAP value', figsize=(4, 3), folder='plots'):
     features = df_shap.columns.to_list()
     n_feats = len(features)
 
@@ -241,8 +251,8 @@ def make_plot(df_shap, org_df, filename, plot_type='scatter', xlabel='SHAP value
 
     plt.grid(True, axis='both', linestyle='--', alpha=0.5)
     plt.tight_layout()
-    os.makedirs('plots', exist_ok=True)
-    plt.savefig(f'plots/{filename}.png', dpi=1000)
+    os.makedirs(folder, exist_ok=True)
+    plt.savefig(os.path.join(folder, f'{filename}.png'), dpi=1000)
     # save only, so the demo scripts never block on a plot window
     plt.close(fig)
 
@@ -321,19 +331,23 @@ class ShapleyAnalysis:
         print(f'{c}: {corr[0]:.2f} ({corr[1]:.2f})')
     return pd.DataFrame(rows)
 
-  def wilcoxon_rank_sum_test(self, df1, df2):
+  def wilcoxon_rank_sum_test(self, df1, df2, skip=None):
     """
       Genrate recommendations for feature interactions
 
       Args:
         df1, df2: shap analysis files for two populations after stratification.
+        skip: {feature: reason} for features that must not be tested, e.g.
+          from screen_skips(); they are kept in the output, untested, with
+          the reason in skipped_reason.
 
       Returns:
-        DataFrame with one row per feature tested: stratum sizes, mean SHAP
-        per stratum, Mann-Whitney U (for df1), rank-biserial correlation
+        DataFrame with one row per feature: stratum sizes, mean SHAP per
+        stratum, Mann-Whitney U (for df1), rank-biserial correlation
         (P(df1 > df2) - P(df1 < df2)), raw two-sided P and whether it passes
         pval_thresh. Features passing are also printed.
     """
+    skip = skip or {}
     rows = []
     for col in df1.columns:
         val1 = df1[col].to_numpy()
@@ -343,8 +357,11 @@ class ShapleyAnalysis:
         row = dict(feature=col, n_stratum1=n1, n_stratum2=n2,
                    mean_shap_stratum1=float(np.mean(val1)) if n1 else np.nan,
                    mean_shap_stratum2=float(np.mean(val2)) if n2 else np.nan,
-                   u_statistic=np.nan, rank_biserial=np.nan, p_value=np.nan, recommended=False)
-        if n1 and n2:
+                   u_statistic=np.nan, rank_biserial=np.nan, p_value=np.nan, recommended=False,
+                   skipped_reason=skip.get(col, ''))
+        if col in skip:
+            print(f'  not tested: {col} ({skip[col]})')
+        elif n1 and n2:
             stat, p = mannwhitneyu(val1, val2, method='asymptotic', alternative='two-sided')
             row.update(u_statistic=float(stat), rank_biserial=float(2 * stat / (n1 * n2) - 1),
                        p_value=float(p), recommended=bool(p <= self.pval_thresh))
@@ -433,14 +450,15 @@ def strata_generate(data, variable, X_test, y_test, thresh):
   n_at_threshold = int(np.sum(vals == thresh))
   return X_test_list, y_test_list, n_at_threshold
 
-def stratify_shap_analysis(model, X_test_list, y_test_list, variable, risk_level, margin=None):
+def stratify_shap_analysis(model, X_test_list, y_test_list, variable, risk_level, margin=None, max_rows=0, seed=None):
     # margin (config subgroup_margin) is only used when risk_level is 'low' or 'high'
     num_group = len(X_test_list)
     strata_shap = []
     for i in range(num_group):
         X_test = X_test_list[i]
         y_test = y_test_list[i]
-        shap_file, sel_data = get_explanations(model, X_test, y_test, eps=margin, risk_level=risk_level)
+        shap_file, sel_data = get_explanations(model, X_test, y_test, eps=margin, risk_level=risk_level,
+                                              max_rows=max_rows, seed=seed)
         # make_plot(shap_file, sel_data, f'aids_shap_{i}_low', plot_type='violin', xlabel='SHAP value', figsize=(8, 6))
         strata_shap.append(shap_file)
     return strata_shap
@@ -533,13 +551,32 @@ def interaction_analysis(data, inter_feat, interact_list, nonlinear_list, centre
     inter = pd.DataFrame(inter_cols, index=data.index)
     return pd.concat([data, inter], axis=1), learned
 
-def check_interaction_spec(strat_features, interaction_lists, columns):
+def recommended_exclusions(exclusion_tables, sd_definition='across_features'):
+    """
+    Features recommended for exclusion: flagged in every cohort (low and high
+    risk) under the given SD definition, from the inclu_exclu_var tables
+    (with cohort and sd_definition columns added).
+    """
+    exc = pd.concat(exclusion_tables, ignore_index=True)
+    exc = exc[exc['sd_definition'] == sd_definition]
+    flagged = exc.groupby('feature')['recommend_exclude'].all()
+    return sorted(flagged[flagged].index)
+
+def screen_skips(variable, excluded):
+    # Features not tested when stratifying on `variable`
+    skip = {f: 'excluded feature' for f in excluded}
+    skip[variable] = 'stratifying variable'
+    return skip
+
+def check_interaction_spec(strat_features, interaction_lists, columns, excluded=()):
     # Call before fitting any interaction model
     assert len(strat_features) == len(interaction_lists), \
         f"{len(strat_features)} stratifying features vs {len(interaction_lists)} interaction lists"
     for a, lst in zip(strat_features, interaction_lists):
+        assert a not in lst, f"'{a}' is listed as its own interaction partner"
         for b in [a] + list(lst):
             assert b in columns, f"'{b}' is not a column in the design matrix"
+            assert b not in excluded, f"'{b}' was recommended for exclusion but appears in an interaction"
 
 class CalibrationPerform:
   def __init__(self, t0, n_bins=5, kind='survival', n_boot=0,
@@ -933,21 +970,28 @@ def adjust_p_bh(p):
         out[ok] = false_discovery_control(p[ok], method='bh')
     return out
 
-def save_recommendations(cfg, exclusion, nonlinearity, interactions, out_dir='results'):
+def save_recommendations(cfg, exclusion, nonlinearity, interactions, out_dir=None):
     """
     Write the recommender output as machine-readable tables:
       <dataset>_exclusion.csv     every feature, per cohort and SD definition
       <dataset>_nonlinearity.csv  every feature, per cohort
-      <dataset>_interactions.csv  every test in the interaction screen, with its
-                                  stratifying variable and cut point, and BH-adjusted
-                                  P across all tests in this dataset's screen
+      <dataset>_interactions.csv  every candidate in the interaction screen, with its
+                                  stratifying variable and cut point, BH-adjusted P
+                                  across all tests run in this dataset's screen, and
+                                  the reason for any candidate not tested
     Each argument is a list of DataFrames, as returned by the ShapleyAnalysis methods
     with identifying columns (cohort, ...) already added.
     """
+    out_dir = out_dir or cfg['results_dir']
     os.makedirs(out_dir, exist_ok=True)
     inter = pd.concat(interactions, ignore_index=True)
-    inter['is_stratifying_variable'] = inter['feature'] == inter['stratifying_variable']
     inter.insert(inter.columns.get_loc('p_value') + 1, 'p_adj_bh', adjust_p_bh(inter['p_value']))
+
+    tested = inter[inter['p_value'].notna()]
+    pairs = {frozenset(p) for p in zip(tested['stratifying_variable'], tested['feature'])}
+    print(f"Interaction screen: {len(tested)} tests on {len(pairs)} unique pairs; "
+          f"{(inter['skipped_reason'] != '').sum()} candidates not tested "
+          f"({inter.loc[inter['skipped_reason'] != '', 'skipped_reason'].value_counts().to_dict()})")
 
     tables = {'exclusion': pd.concat(exclusion, ignore_index=True),
               'nonlinearity': pd.concat(nonlinearity, ignore_index=True),

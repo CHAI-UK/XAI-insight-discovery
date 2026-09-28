@@ -10,7 +10,8 @@ from sklearn.model_selection import train_test_split
 
 from utils import (MetricEval, ShapleyAnalysis, strata_generate, nonlinear_analysis,
                    interaction_analysis, check_interaction_spec, load_config, get_model,
-                   cox_coefficient_table, adjust_p_bh, save_recommendations)
+                   cox_coefficient_table, adjust_p_bh, save_recommendations,
+                   recommended_exclusions, screen_skips)
 
 
 @pytest.fixture(scope='module')
@@ -90,7 +91,7 @@ def test_exclusion_rule_upper_bound_only():
 def test_missing_comma_would_now_be_caught():
     cols = ['ivdrug', 'cd4', 'priorzdv', 'raceth', 'age', 'karnof', 'sex', 'strat2']
     bad = ['ivdrug', 'cd4', 'priorzdv' 'raceth', 'age']      # the published typo
-    lists = [['karnof'], ['karnof', 'raceth'], ['ivdrug', 'priorzdv'],
+    lists = [['karnof'], ['karnof', 'raceth'], ['ivdrug'],
              ['ivdrug', 'priorzdv', 'sex'], ['strat2', 'priorzdv', 'karnof', 'raceth']]
     with pytest.raises(AssertionError):
         check_interaction_spec(bad, lists, cols)
@@ -164,14 +165,14 @@ def test_bh_adjustment_keeps_untested_as_nan():
 def test_save_recommendations_writes_tables(tmp_path):
     exc = [pd.DataFrame({'feature': ['a'], 'recommend_exclude': [True]}).assign(cohort='low', sd_definition='across_features')]
     nl = [pd.DataFrame({'feature': ['a'], 'r': [0.05]}).assign(cohort='low')]
-    inter = [pd.DataFrame({'feature': ['a', 'b'], 'p_value': [0.01, 0.2], 'recommended': [True, False]})
+    inter = [pd.DataFrame({'feature': ['a', 'b'], 'p_value': [np.nan, 0.01], 'recommended': [False, True],
+                           'skipped_reason': ['stratifying variable', '']})
              .assign(cohort='high', stratifying_variable='a', split_on='SHAP value', threshold=0)]
     tables = save_recommendations({'dataset': 'demo'}, exc, nl, inter, out_dir=tmp_path)
     assert {f.name for f in tmp_path.iterdir()} == {'demo_exclusion.csv', 'demo_nonlinearity.csv', 'demo_interactions.csv'}
     t = tables['interactions']
     assert list(t.columns[:4]) == ['cohort', 'stratifying_variable', 'split_on', 'threshold']
-    assert list(t['is_stratifying_variable']) == [True, False]
-    assert np.allclose(t['p_adj_bh'], [0.02, 0.2])
+    assert np.isnan(t['p_adj_bh'][0]) and np.isclose(t['p_adj_bh'][1], 0.01)
 
 
 def _breslow_loglik(beta, X, time, event):
@@ -200,3 +201,38 @@ def test_cox_table_matches_numerical_information():
     assert np.allclose(tab['se'], se_numeric, rtol=1e-4)
     assert np.allclose(tab['hr'], np.exp(model.coef_))
     assert (tab['hr_ci_lo'] < tab['hr']).all() and (tab['hr'] < tab['hr_ci_hi']).all()
+
+
+# ---- C08: no self-pairs, no excluded features in the screen or the model ----
+def test_screen_skips_self_and_excluded():
+    shapana = ShapleyAnalysis(0.05, None, 0.05, random_state=0)
+    df1 = pd.DataFrame({'age': [1., 2., 3.], 'sex': [0., 1., 2.], 'drug': [5., 6., 7.]})
+    df2 = pd.DataFrame({'age': [4., 5., 6.], 'sex': [3., 4., 5.], 'drug': [8., 9., 10.]})
+    res = shapana.wilcoxon_rank_sum_test(df1, df2, skip=screen_skips('age', ['drug'])).set_index('feature')
+    assert res.loc['age', 'skipped_reason'] == 'stratifying variable' and np.isnan(res.loc['age', 'p_value'])
+    assert res.loc['drug', 'skipped_reason'] == 'excluded feature' and np.isnan(res.loc['drug', 'p_value'])
+    assert res.loc['sex', 'skipped_reason'] == '' and not np.isnan(res.loc['sex', 'p_value'])
+
+
+def test_recommended_exclusions_needs_every_cohort():
+    tab = lambda cohort, flags: pd.DataFrame({'feature': ['a', 'b'], 'recommend_exclude': flags}).assign(
+        cohort=cohort, sd_definition='across_features')
+    assert recommended_exclusions([tab('low', [True, True]), tab('high', [True, False])]) == ['a']
+
+
+def test_spec_rejects_self_pairs_and_excluded():
+    cols = ['a', 'b', 'c']
+    with pytest.raises(AssertionError, match='own interaction partner'):
+        check_interaction_spec(['a'], [['a', 'b']], cols)
+    with pytest.raises(AssertionError, match='recommended for exclusion'):
+        check_interaction_spec(['a'], [['b', 'c']], cols, excluded=['c'])
+    check_interaction_spec(['a'], [['b']], cols, excluded=['c'])
+
+
+def test_quick_mode_is_separate_from_full():
+    full, quick = load_config('act'), load_config('act', quick=True)
+    assert quick['rsf']['n_estimators'] < full['rsf']['n_estimators']
+    assert quick['rsf']['min_samples_leaf'] == full['rsf']['min_samples_leaf']   # nested keys merged
+    assert quick['subgroup_margin'] == full['subgroup_margin']                   # dataset values kept
+    assert quick['results_dir'] != full['results_dir'] and quick['plots_dir'] != full['plots_dir']
+    assert quick['quick'] and not full['quick']

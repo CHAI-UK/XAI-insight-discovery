@@ -22,6 +22,9 @@ python demo_gbsg2.py
 python demo_act.py
 ```
 
+## Quick debugging runs
+A full run takes about 10 minutes per dataset, mostly SHAP. For debugging, add `--quick` (e.g. `python demo_act.py --quick`, about 40 seconds): it uses a 100-tree forest, 200 bootstrap replicates and at most 25 patients per SHAP call (the `quick` block in `config.yml`), and writes to `results_quick/` and `plots_quick/`. Quick results are not for reporting.
+
 ## Settings and outputs
 All analysis settings (split, seeds, forest hyperparameters, bootstrap replicates, subgroup margins, thresholds and calibration horizons) are defined once in [config.yml](./config.yml). Each demo run writes the settings it used, with package versions, to `results/<dataset>_run_config.json`, and the strata thresholds with their stratum sizes to `results/<dataset>_strata_thresholds.csv`. Plots are saved to `plots/`.
 

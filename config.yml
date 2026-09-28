@@ -16,6 +16,9 @@ common:
   nonlinear_r_threshold: 0.1  # |Pearson r| between feature and SHAP below this -> non-linear
   interaction_p_threshold: 0.05
   calibration_bins: 5
+  shap_max_rows: 0            # cap on patients explained per SHAP call; 0 = all
+  results_dir: results
+  plots_dir: plots
 
 # Subgroup margin: a training patient joins the low- (high-) risk cohort when
 # |predicted risk - risk of the mean non-event (event) patient| < margin x SD of
@@ -29,6 +32,18 @@ gbsg2:
 act:
   subgroup_margin: 0.1
   calibration_t0: 320         # days
+
+# Quick mode for debugging: python demo_<dataset>.py --quick
+# Overlays these values on any dataset. A smaller forest and a cap on the
+# patients explained make a run take about a minute instead of ten. The
+# results go to separate folders and must never be reported.
+quick:
+  rsf:
+    n_estimators: 100
+  n_bootstrap: 200
+  shap_max_rows: 25
+  results_dir: results_quick
+  plots_dir: plots_quick
 
 # DataLoch runs outside this repository. Record here the settings that run
 # actually used; null means not yet confirmed.
