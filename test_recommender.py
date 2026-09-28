@@ -52,6 +52,21 @@ def test_nonlinear_uses_training_centre():
     assert centre == {'age': 20.0}
     assert np.allclose(te_out['age'], [80., 180.])           # not centred on 150
     assert np.allclose(te_out['age_quadratic'], [6400., 32400.])
+    with pytest.raises(KeyError):                             # never falls back to test means
+        nonlinear_analysis(te.assign(bmi=1.), ['age', 'bmi'], centre=centre)
+
+
+def test_interaction_uses_training_centre():
+    tr = pd.DataFrame({'a': [0., 2.], 'b': [1., 3.]})
+    te = pd.DataFrame({'a': [5.], 'b': [10.]})
+    tr_out, centre = interaction_analysis(tr, 'a', ['b'], [], verbose=False)
+    te_out, _ = interaction_analysis(te, 'a', ['b'], [], centre=centre, verbose=False)
+    assert centre == {'a': 1.0, 'b': 2.0}
+    assert np.allclose(tr_out['a_x_b'], [1., 1.])
+    assert np.allclose(te_out['a_x_b'], [(5 - 1) * (10 - 2)])   # not centred on the test row
+    assert np.allclose(te_out[['a', 'b']], te[['a', 'b']])      # main effects untouched
+    with pytest.raises(KeyError):
+        interaction_analysis(te.assign(c=0.), 'a', ['c'], [], centre=centre, verbose=False)
 
 
 # ---- M5: exclusion rule has no dead branch and SD matches Methods -----------
@@ -86,5 +101,13 @@ def test_interaction_analysis_raises_on_absent_column():
     df = pd.DataFrame({'a': [1., 2.], 'b': [3., 4.]})
     with pytest.raises(KeyError):
         interaction_analysis(df, 'a', ['b', 'zzz'], [])
-    out = interaction_analysis(df, 'a', ['b'], [])
+    out, _ = interaction_analysis(df, 'a', ['b'], [])
     assert list(out.columns) == ['a', 'b', 'a_x_b']
+
+
+def test_interaction_analysis_logs_constructed_terms(capsys):
+    df = pd.DataFrame({'a': [1., 2.], 'b': [3., 4.], 'b_quadratic': [9., 16.]})
+    interaction_analysis(df, 'a', ['b'], ['b'])
+    assert "Interaction terms for a: ['a_x_b', 'a_x_b_quad']" in capsys.readouterr().out
+    interaction_analysis(df, 'a', ['b'], ['b'], verbose=False)
+    assert capsys.readouterr().out == ''

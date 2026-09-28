@@ -112,8 +112,8 @@ check_interaction_spec(inter_feat_total, interaction_list_total, X_train_interac
 for i in range(len(inter_feat_total)):
     inter_feat = inter_feat_total[i]
     interaction_list = interaction_list_total[i]
-    X_train_interact = interaction_analysis(X_train_interact,inter_feat, interaction_list, non_linear_list)
-    X_test_interact = interaction_analysis(X_test_interact,inter_feat, interaction_list, non_linear_list)
+    X_train_interact, inter_centre = interaction_analysis(X_train_interact,inter_feat, interaction_list, non_linear_list)
+    X_test_interact, _ = interaction_analysis(X_test_interact,inter_feat, interaction_list, non_linear_list, centre=inter_centre, verbose=False)
 
 cox_new_model = get_model('cox', 20)
 cox_new_model.fit(X_train_interact, y_train)
@@ -133,8 +133,8 @@ check_interaction_spec(inter_feat_total, interaction_list_total, X_train_interac
 for i in range(len(inter_feat_total)):
   inter_feat = inter_feat_total[i]
   interaction_list = interaction_list_total[i]
-  X_train_interact = interaction_analysis(X_train_interact,inter_feat, interaction_list, non_linear_list)
-  X_test_interact = interaction_analysis(X_test_interact,inter_feat, interaction_list, non_linear_list)
+  X_train_interact, inter_centre = interaction_analysis(X_train_interact,inter_feat, interaction_list, non_linear_list)
+  X_test_interact, _ = interaction_analysis(X_test_interact,inter_feat, interaction_list, non_linear_list, centre=inter_centre, verbose=False)
 
 cox_new_model = get_model('cox', 20)
 cox_new_model.fit(X_train_interact, y_train)

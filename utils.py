@@ -399,6 +399,8 @@ def nonlinear_analysis(data, nonlinear_feature, nonlinear_type='quadratic', cent
         name = f'{feature}_{nonlinear_type}'
         if nonlinear_type == 'quadratic':
             if feature not in learned:
+                if centre is not None:
+                    raise KeyError(f"no training centre supplied for '{feature}'")
                 learned[feature] = float(data[feature].mean())
             data[feature] = data[feature] - learned[feature]
             nonlinear_cols.append((data[feature] ** 2).rename(name).to_frame())
@@ -412,30 +414,52 @@ def nonlinear_analysis(data, nonlinear_feature, nonlinear_type='quadratic', cent
     return data, learned
 
 ## Integrate interaction recommendations on the dataset
-def interaction_analysis(data, inter_feat, interact_list, nonlinear_list, strict=True):
+def interaction_analysis(data, inter_feat, interact_list, nonlinear_list, centre=None, strict=True, verbose=True):
     """
     Add product terms between inter_feat and each feature in interact_list.
+
+    Each factor of a product is centred before multiplying. Call on the
+    training frame with centre=None to learn the centring values, then pass
+    the returned dict as `centre` when transforming the test frame, so the
+    test products are centred on the training means. The main-effect columns
+    themselves are left unchanged.
+
     With strict=True, a requested column that does not exist raises a KeyError
-    instead of being skipped silently.
+    instead of being skipped silently. With verbose=True, the constructed
+    terms are printed.
+
+    Returns:
+        (transformed_data, centre_dict)
     """
     missing = [c for c in [inter_feat] + list(interact_list) if c not in data.columns]
     if missing and strict:
         raise KeyError(f"interaction requested on absent column(s): {missing}")
 
+    learned = {} if centre is None else dict(centre)
+    def centred(col):
+        if col not in learned:
+            if centre is not None:
+                raise KeyError(f"no training centre supplied for '{col}'")
+            learned[col] = float(data[col].mean())
+        return data[col] - learned[col]
+
     inter_cols = {}
     a = inter_feat
     for b in interact_list:
         if a in data.columns and b in data.columns:
-            inter_cols[f'{a}_x_{b}'] = data[a] * data[b]
+            inter_cols[f'{a}_x_{b}'] = centred(a) * centred(b)
             if a in nonlinear_list and b in nonlinear_list:
-                inter_cols[f'{a}_quad_x_{b}_quad'] = data[a + '_quadratic'] * data[b + '_quadratic']
+                inter_cols[f'{a}_quad_x_{b}_quad'] = centred(a + '_quadratic') * centred(b + '_quadratic')
             elif a in nonlinear_list:
-                inter_cols[f'{a}_quad_x_{b}'] = data[a + '_quadratic'] * data[b]
+                inter_cols[f'{a}_quad_x_{b}'] = centred(a + '_quadratic') * centred(b)
             elif b in nonlinear_list:
-                inter_cols[f'{a}_x_{b}_quad'] = data[a] * data[b + '_quadratic']
+                inter_cols[f'{a}_x_{b}_quad'] = centred(a) * centred(b + '_quadratic')
+
+    if verbose:
+        print(f'Interaction terms for {inter_feat}: {list(inter_cols)}')
 
     inter = pd.DataFrame(inter_cols, index=data.index)
-    return pd.concat([data, inter], axis=1)
+    return pd.concat([data, inter], axis=1), learned
 
 def check_interaction_spec(strat_features, interaction_lists, columns):
     # Call before fitting any interaction model
