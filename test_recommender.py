@@ -136,11 +136,10 @@ def test_strata_ties_go_to_lower_stratum():
     assert t['n_group2'].iloc[0] == (x > 1).sum() == 100
 
 
-def test_screen_skips_self_pairs_and_excluded_features():
-    """C08: a feature is never its own partner, and excluded features are not
-    interaction candidates."""
-    rng = np.random.default_rng(3)
-    n = 400
+def _screen_data(seed=3, n=400):
+    """Training data and attributions with one interaction (a x d, b x a) and
+    one feature with no effect (z), for the screening tests."""
+    rng = np.random.default_rng(seed)
     X = pd.DataFrame({'a': rng.normal(size=n), 'd': rng.normal(size=n),
                       'b': (rng.random(n) < .5) * 1., 'c': (rng.random(n) < .5) * 1.,
                       'z': (rng.random(n) < .5) * 1.})
@@ -152,7 +151,13 @@ def test_screen_skips_self_pairs_and_excluded_features():
                             'z': noise(1e-5)}, index=X.index)
     y = np.array(list(zip(rng.random(n) < .5, rng.exponential(5, n))),
                  dtype=[('event', bool), ('time', float)])
-    shap_sel = {'low': (shap_df, X), 'high': (shap_df, X)}
+    return X, y, {'low': (shap_df, X), 'high': (shap_df, X)}
+
+
+def test_screen_skips_self_pairs_and_excluded_features():
+    """C08: a feature is never its own partner, and excluded features are not
+    interaction candidates."""
+    X, y, shap_sel = _screen_data()
     rec, info = _screen_recommendations(X, y, shap_sel, continuous=['a', 'd'], ordinal=[],
                                         cutpoints={}, groups={}, min_cell=20, seed=20)
     assert rec['exclusion'] == ['z']
@@ -172,3 +177,40 @@ def test_exclusion_threshold_is_sd_of_feature_means():
     assert np.isclose(t['threshold'].iloc[0], 0.05 * shap_df.abs().mean().std(ddof=1))
     assert (t['excluded'] == (t['ci_high'] < t['threshold'])).all()
     assert excl == ['tiny']
+
+
+def test_captured_screens_are_unchanged_and_tables_reproduce_them():
+    """public_analyses: observing the screening calls changes nothing, the
+    original function is restored, and the recomputed exclusion and
+    non-linearity tables give the recommended lists."""
+    import utils
+    from public_analyses import capture_screens, screen_tables
+    X, y, shap_sel = _screen_data()
+    kw = dict(continuous=['a', 'd'], ordinal=[], cutpoints={}, groups={}, min_cell=20, seed=20)
+    original = utils._screen_recommendations
+    plain, _ = original(X, y, shap_sel, **kw)
+    with capture_screens() as calls:
+        observed, _ = utils._screen_recommendations(X, y, shap_sel, **kw)
+    assert utils._screen_recommendations is original
+    assert observed == plain and len(calls) == 1
+    tables = screen_tables(calls[0])
+    excluded = tables['exclusion'].groupby('feature')['excluded'].all()
+    assert sorted(excluded[excluded].index) == plain['exclusion']
+    assert set(tables['exclusion']['subcohort']) == {'low', 'high'}
+
+
+def test_final_cox_table_matches_the_fitted_model(gbsg2_fit, tmp_path):
+    """public_analyses: HRs are exp(coef) of the model evaluate_recommendations
+    fits, with finite CIs that contain them."""
+    from public_analyses import final_cox_table
+    _, X, y = gbsg2_fit
+    X = X[['age', 'pnodes', 'horTh=yes', 'tsize']]
+    rec = dict(exclusion=[], nonlinear=['age'], interaction={'pnodes': ['horTh=yes']})
+    Xtr, _ = Recommender.apply(X, X, rec, variant='all')
+    model = CoxPHSurvivalAnalysis(alpha=1e-6, ties='efron').fit(Xtr, y)
+    pd.Series(model.coef_, index=Xtr.columns, name='coef').to_csv(
+        tmp_path / 'toy_final_cox_coefficients.csv')
+    _, tab = final_cox_table(rec, X, y, 'toy', out_dir=str(tmp_path))
+    np.testing.assert_allclose(tab['HR'], np.exp(model.coef_))
+    assert ((tab['HR_low'] < tab['HR']) & (tab['HR'] < tab['HR_high'])).all()
+    assert (tmp_path / 'toy_final_cox_hr.tsv').exists()

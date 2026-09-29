@@ -1,7 +1,7 @@
 # Explainable AI for Data-Driven Design of High-Dimensional Predictive Studies
 This code repository can be used to replicate the numerical experiments performed on open data sets (GBSG2, ACT and peakVO2).
 
-The recommendation rules (`recommender.py`) and the evaluation tools (`utils.py`) are the same code as used for the analysis of the main cohort (DataLoch), and each demo calls them through the same entry points (`recommend` and `evaluate_recommendations`). The data processing specific to DataLoch is not released, for data security reasons. The version of the code that produced the results in the paper is tagged `dataloch-run`.
+The recommendation rules (`recommender.py`) and the evaluation tools (`utils.py`) are the same code as used for the analysis of the main cohort (DataLoch), and each demo calls them through the same entry points (`recommend` and `evaluate_recommendations`). `public_analyses.py` adds outputs for the open data sets without changing that code: `run_recommend` calls `recommend` unchanged and also saves the tables it computes but does not return, `final_cox_table` adds hazard ratios with confidence intervals, and `write_run_record` saves the settings of each run. The data processing specific to DataLoch is not released, for data security reasons. The version of the code that produced the results in the paper is tagged `dataloch-run`.
 
 Each demo follows the same steps:
 1. An 80/20 train-test split; a random survival forest (the exploratory model) fitted on the training set.
@@ -38,13 +38,21 @@ Each demo writes the following, where `<data>` is `gbsg2`, `act` or `peak`:
 
 | File | Content |
 |---|---|
+| `results/<data>_run_settings.json` | Every setting the run used (split, forest, attributions, recommendation rules, evaluation), package versions and git commit |
+| `results/<data>_rsf_evaluation.csv` | Test-set metrics of the exploratory random survival forest |
 | `results/<data>_model_comparison.csv` | Test-set metrics for every model: without recommendations, with each recommendation, with all of them, and the two comparators |
 | `results/<data>_margin_stability.csv` | The margin search: subcohort sizes, recommendation counts and agreement at each margin, and the chosen margin |
+| `results/<data>_exclusion_tests.csv` | Exclusion rule for every feature in each subcohort: mean absolute attribution, upper confidence bound and threshold |
+| `results/<data>_nonlinear_tests.csv` | Non-linearity rule for every candidate in each subcohort: correlation, gain in R² of the flexible fit, raw and FDR-adjusted P |
+| `results/<data>_feature_screen.csv` | Within-value dispersion of each feature's attributions, its pattern, cut point, and whether it was screened for interactions |
 | `results/<data>_interaction_tests.csv` | Every interaction test: stratifying feature, partner, method, cut point, effect size with 95% CI, raw, pair-level and FDR-adjusted P, and the reference Cox model result |
 | `results/<data>_target_model_tests.csv` | Score tests of the screened pairs in the reference Cox model |
+| `results/<data>_budget_log.csv` | Pairs offered to the parameter budget, their cost in columns, and whether each entered the model |
 | `results/<data>_summary.csv` | Chosen margin, subcohort sizes, numbers of tests and pairs, parameter budget and number of interaction pairs entered |
 | `results/<data>_final_cox_coefficients.csv` | Coefficients of the Cox model with all recommendations |
+| `results/<data>_final_cox_hr.tsv` | Hazard ratios with 95% CIs and P values for the same model |
 | `results/<data>_ph_test_final.csv` | Schoenfeld residual tests for the Cox model with all recommendations |
+| `results/<data>_shap_values_<low\|high>.csv`, `results/<data>_shap_data_<low\|high>.csv` | Attributions and feature values of the two subcohorts at the chosen margin |
 | `plots/<data>_shap_low.png`, `plots/<data>_shap_high.png` | Feature attributions in the low- and high-risk subcohorts |
 | Calibration plots and bins | `plots/` (GBSG2), `plots/aids/` (ACT), `plots/peak/` (peakVO2) |
 
