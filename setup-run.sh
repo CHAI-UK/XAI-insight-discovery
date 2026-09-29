@@ -4,3 +4,4 @@ source activate xai-id
 
 python demo_gbsg2.py
 python demo_act.py
+python demo_nwtco.py

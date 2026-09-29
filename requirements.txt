@@ -8,5 +8,6 @@ scipy
 matplotlib
 seaborn
 patsy
-pyyaml==6.0.3
+statsmodels
+lifelines
 pytest

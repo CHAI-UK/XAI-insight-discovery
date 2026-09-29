@@ -10,5 +10,6 @@ dependencies:
   - seaborn
   - scipy
   - patsy
-  - pyyaml
   - shap
+  - statsmodels
+  - lifelines

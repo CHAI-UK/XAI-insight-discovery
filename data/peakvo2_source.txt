@@ -1,0 +1,8 @@
+Dataset: randomForestSRC::peakVO2
+Documentation: https://www.randomforestsrc.org/reference/peakVO2.html
+Source: https://raw.githubusercontent.com/cran/randomForestSRC/master/data/peakVO2.rda
+Retrieved: 2026-09-28
+Conversion: rdata.read_rda(source)['peakVO2'].to_csv('data/peakvo2.csv', index=False)
+Dimensions: 2231 rows, 41 columns (39 predictors and 2 outcome columns).
+Outcome: died (0 = censored, 1 = death); ttodead (follow-up in years).
+No rows or columns were removed, and no imputation was applied during conversion.
