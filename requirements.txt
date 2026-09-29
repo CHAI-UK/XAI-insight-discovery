@@ -1,13 +1,13 @@
-# C7
 numpy==2.4.4
 pandas==3.0.2
 scikit-learn==1.9.0
 scikit-survival==0.28.0
-shap>=0.46
-scipy
-matplotlib
-seaborn
-patsy
-statsmodels
-lifelines
-pytest
+shap==0.52.0
+scipy==1.18.1
+matplotlib==3.11.2
+seaborn==0.13.2
+patsy==1.0.3
+statsmodels==0.15.0
+lifelines==0.30.0
+joblib==1.6.0
+pytest==9.1.1

@@ -48,11 +48,10 @@ print(pd.Series(report))
 ## Generate recommendations from the training data
 scaler = pre.named_transformers_['con']
 rec, info = recommend(ex_model, X_train, y_train, continuous=con_cols + ['pnodes'],
-                      ordinal=['tgrade'], cutpoints={}, tag='GBSG2')
+                      ordinal=['tgrade'], cutpoints={}, tag='gbsg2')
 info['tests'].to_csv('results/gbsg2_interaction_tests.csv', index=False)
 info['target'].to_csv('results/gbsg2_target_model_tests.csv', index=False)
 pd.Series(info['summary']).to_csv('results/gbsg2_summary.csv')
-info['margin'].to_csv('results/gbsg2_margin_testability.csv', index=False)
 
 ## Integrate the recommendations and evaluate each once on the test set
 evaluate_recommendations(rec, X_train, X_test, y_train, y_test, t0=1500, tag='gbsg2',

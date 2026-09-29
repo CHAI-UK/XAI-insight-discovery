@@ -1,14 +1,16 @@
 # Explainable AI for Data-Driven Design of High-Dimensional Predictive Studies
-This code repository can be used to replicate numerical experiments performed on open data sets (GBSG2, ACT and the National Wilms Tumor Study).
+This code repository can be used to replicate the numerical experiments performed on open data sets (GBSG2, ACT and peakVO2).
 
-Each demo follows the same steps as the analysis of the main cohort, using the same code (`recommender.py` for the recommendation rules, the evaluation tools in `utils.py`):
+The recommendation rules (`recommender.py`) and the evaluation tools (`utils.py`) are the same code as used for the analysis of the main cohort (DataLoch), and each demo calls them through the same entry points (`recommend` and `evaluate_recommendations`). The data processing specific to DataLoch is not released, for data security reasons. The version of the code that produced the results in the paper is tagged `dataloch-run`.
+
+Each demo follows the same steps:
 1. An 80/20 train-test split; a random survival forest (the exploratory model) fitted on the training set.
-2. Feature attributions (KernelSHAP) of the forest's log risk score in a low-risk and a high-risk subcohort, around the average patient without and with the event. The subgroup margin is chosen on the training data from feature values alone: the smallest margin at which at least 90% of the candidate pairs that can be tested at any margin are testable (enough patients in each stratum and at each level of a binary partner). The table of testable pairs by margin is saved for each data set.
-3. Recommendations from the training data: features to exclude, features needing non-linear terms, and candidate interactions, screened with within-stratum contrasts (binary and nominal partners; one-hot encoded nominal features are recombined and tested with one contrast per level) and product-term regressions (continuous and ordinal partners), with false discovery rate control over unique pairs, then screened against nonlinear main effects in a reference Cox model, with the number of interaction terms limited by a sample-size criterion (Riley et al).
-4. The Cox model fitted without recommendations, with each recommendation and with all of them, each evaluated once on the test set: Harrell's C with bootstrap confidence interval, Uno's C, time-dependent AUC, integrated Brier score, calibration with bootstrap intervals and calibration slope, and the paired difference in C from the model without recommendations. Two comparators are fitted: a Cox model with restricted cubic splines and a LASSO Cox model over all pairwise interactions.
+2. Feature attributions (KernelSHAP) of the forest's log risk score in a low-risk and a high-risk subcohort: training patients whose log risk lies within a margin of that of the average patient without and with the event. The margin is chosen on the training data from a grid (0.05, 0.1, 0.2, 0.3, 0.5 and 1.0 times the SD of the log risk). It is the smaller of the first two consecutive margins at which each subcohort has at least 100 patients, every feature that needs an interaction screen can be screened, and the exclusion, non-linearity and interaction recommendations agree (Jaccard similarity of at least 0.9 for each). If no two margins agree, the largest margin that could be evaluated is used and the run is flagged as unstable.
+3. Recommendations from the training data: features to exclude, features needing non-linear terms, and candidate interactions. Interactions are screened with within-stratum contrasts (binary and nominal partners; one-hot encoded nominal features are recombined and tested with one contrast per level) and product-term regressions (continuous and ordinal partners). False discovery rate control is applied over unique pairs, and the surviving pairs are then tested against nonlinear main effects in a reference Cox model, with the number of interaction terms limited by a sample-size criterion (Riley et al).
+4. The Cox model is fitted without recommendations, with each recommendation and with all of them, and each is evaluated once on the test set. Metrics: Harrell's C with bootstrap confidence interval, Uno's C, time-dependent AUC, integrated Brier score, calibration with bootstrap intervals and calibration slope, and the paired difference in C from the model without recommendations. Two comparators are fitted: a Cox model with restricted cubic splines and a LASSO Cox model over all pairwise interactions.
 
 ## One-click Test
-Run the following to install necessary packages and execute a demo in a single step:
+Run the following to create the pinned environment and execute the three demos in a single step:
 ```
 sh setup-run.sh
 ```
@@ -26,10 +28,25 @@ conda activate xai-id
 ```
 python demo_gbsg2.py
 python demo_act.py
-python demo_nwtco.py
+python demo_peak.py
 ```
 
-Results are written to `results/` (model comparison, margin testability, interaction tests, target-model tests, summary counts, final Cox coefficients and proportional hazards tests for each data set) and figures to `plots/`. Set `XAI_N_JOBS` to limit the number of parallel workers (default: all cores).
+The environment pins Python 3.12 and every package version (`requirements.txt`); `pip install -r requirements.txt` in a Python 3.12 virtual environment works as well. A full run of one demo is slow, because KernelSHAP is computed for each margin evaluated. Set `XAI_N_JOBS` to limit the number of parallel workers (default: all cores). On machines without a display, set `MPLBACKEND=Agg`.
+
+## Outputs
+Each demo writes the following, where `<data>` is `gbsg2`, `act` or `peak`:
+
+| File | Content |
+|---|---|
+| `results/<data>_model_comparison.csv` | Test-set metrics for every model: without recommendations, with each recommendation, with all of them, and the two comparators |
+| `results/<data>_margin_stability.csv` | The margin search: subcohort sizes, recommendation counts and agreement at each margin, and the chosen margin |
+| `results/<data>_interaction_tests.csv` | Every interaction test: stratifying feature, partner, method, cut point, effect size with 95% CI, raw, pair-level and FDR-adjusted P, and the reference Cox model result |
+| `results/<data>_target_model_tests.csv` | Score tests of the screened pairs in the reference Cox model |
+| `results/<data>_summary.csv` | Chosen margin, subcohort sizes, numbers of tests and pairs, parameter budget and number of interaction pairs entered |
+| `results/<data>_final_cox_coefficients.csv` | Coefficients of the Cox model with all recommendations |
+| `results/<data>_ph_test_final.csv` | Schoenfeld residual tests for the Cox model with all recommendations |
+| `plots/<data>_shap_low.png`, `plots/<data>_shap_high.png` | Feature attributions in the low- and high-risk subcohorts |
+| Calibration plots and bins | `plots/` (GBSG2), `plots/aids/` (ACT), `plots/peak/` (peakVO2) |
 
 ## Interactive Test
 Once you have installed necessary packages (see steps above), you can also try an interactive [demo](./demo.ipynb).
@@ -38,6 +55,7 @@ Once you have installed necessary packages (see steps above), you can also try a
 ```
 pytest test_recommender.py -q
 ```
+The tests also run on every push (GitHub Actions, `.github/workflows/tests.yml`).
 
 ## Data
-GBSG2 and ACT are loaded from scikit-survival. `data/nwtco.csv` is the `nwtco` data set of the R package survival, exported with `write.table(survival::nwtco, "nwtco.csv", sep = ",", row.names = FALSE)`.
+GBSG2 and ACT are loaded from scikit-survival. `data/peakvo2.csv` is the `peakVO2` data set of the R package randomForestSRC (2,231 patients with systolic heart failure, 39 predictors, all-cause death); `data/peakvo2_source.txt` describes its source and conversion.

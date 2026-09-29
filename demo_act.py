@@ -58,11 +58,10 @@ print(pd.Series(report))
 scaler = pre.named_transformers_['con']
 cutpoints = {}
 rec, info = recommend(ex_model, X_train, y_train, continuous=con_cols, ordinal=['karnof'],
-                      cutpoints=cutpoints, groups=groups, tag='aids')
+                      cutpoints=cutpoints, groups=groups, tag='act')
 info['tests'].to_csv('results/act_interaction_tests.csv', index=False)
 info['target'].to_csv('results/act_target_model_tests.csv', index=False)
 pd.Series(info['summary']).to_csv('results/act_summary.csv')
-info['margin'].to_csv('results/act_margin_testability.csv', index=False)
 
 ## Integrate the recommendations and evaluate each once on the test set
 evaluate_recommendations(rec, X_train, X_test, y_train, y_test, t0=320, tag='act',

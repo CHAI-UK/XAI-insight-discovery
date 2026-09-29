@@ -2,14 +2,7 @@ name: xai-id
 channels:
   - conda-forge
 dependencies:
-  - numpy
-  - pandas
-  - scikit-learn
-  - scikit-survival
-  - matplotlib
-  - seaborn
-  - scipy
-  - patsy
-  - shap
-  - statsmodels
-  - lifelines
+  - python=3.12
+  - pip
+  - pip:
+    - -r requirements.txt

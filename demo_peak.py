@@ -47,7 +47,6 @@ rec, info = recommend(ex_model, X_train, y_train, continuous=con_cols, ordinal=[
 info['tests'].to_csv('results/peak_interaction_tests.csv', index=False)
 info['target'].to_csv('results/peak_target_model_tests.csv', index=False)
 pd.Series(info['summary']).to_csv('results/peak_summary.csv')
-info['margin'].to_csv('results/peak_margin_testability.csv', index=False)
 
 ## Integrate the recommendations and evaluate each once on the test set
 evaluate_recommendations(rec, X_train, X_test, y_train, y_test, t0=t0, tag='peak',

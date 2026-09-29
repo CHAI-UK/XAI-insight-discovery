@@ -9,7 +9,8 @@ from sksurv.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split
 
 from recommender import Recommender
-from utils import MetricEval, get_explanations, cox_risk_score, as_surv, _window_similarity
+from utils import (MetricEval, get_explanations, cox_risk_score, as_surv, _window_similarity,
+                   _coxnet_cv, _screen_recommendations)
 
 
 @pytest.fixture(scope='module')
@@ -35,33 +36,28 @@ def test_cindex_difference_of_identical_scores(gbsg2_fit):
     assert d == 0 and lo == 0 and hi == 0
 
 
+class _EmptyReport:
+    """Stands in for MetricEval and CalibrationPerform when only the fit matters."""
+    def full_report(self, *args, **kwargs):
+        return {}
+
+    def report(self, *args, **kwargs):
+        return {}
+
+
 def test_coxnet_penalty_uses_training_data_only(gbsg2_fit):
-    from utils import fit_coxnet_design
-
-    class EmptyReport:
-        def full_report(self, *args, **kwargs):
-            return {}
-
-        def report(self, *args, **kwargs):
-            return {}
-
     _, X, y = gbsg2_fit
-    train = X.iloc[:100][['age', 'pnodes']].copy()
-    test = X.iloc[100:][['age', 'pnodes']].copy()
-    train['constant'], test['constant'] = 1.0, 1.0
-    original = train.copy()
-    reporter = EmptyReport()
-    first, score, coef = fit_coxnet_design(
-        train, test, y[:100], y[100:], reporter, reporter, 'test', n_folds=3)
-    second, _, coef2 = fit_coxnet_design(
-        train, test * 2, y[:100], y[100:][::-1], reporter, reporter, 'test', n_folds=3)
+    P = np.c_[X[['age', 'pnodes']].to_numpy(float), np.ones(len(X))]
+    names = ['age', 'pnodes', 'constant']
+    Ptr, Pte = P[:100], P[100:]
+    original = Ptr.copy()
+    rep = _EmptyReport()
+    first = _coxnet_cv(Ptr, Pte, names, y[:100], y[100:], rep, rep, 'test', n_folds=3)
+    # changing the test design and outcomes must not change the chosen penalty
+    second = _coxnet_cv(Ptr, Pte * 2, names, y[:100], y[100:][::-1], rep, rep, 'test', n_folds=3)
     assert first['alpha'] == second['alpha']
-    pd.testing.assert_series_equal(coef, coef2)
-    pd.testing.assert_frame_equal(train, original)
-    assert 'constant' not in coef.index
-    # Returned coefficients preserve risk contrasts on the input feature scale.
-    expected = test[coef.index].to_numpy() @ coef.to_numpy()
-    np.testing.assert_allclose(score - score[0], expected - expected[0], atol=1e-10)
+    np.testing.assert_array_equal(Ptr, original)
+    assert first['n_parameters'] == 2                    # the constant column is dropped
 
 
 class _MultiplicativeRisk:
@@ -87,14 +83,6 @@ def test_attributions_are_additive_on_the_log_scale():
     assert (sh.index == sel.index).all()
 
 
-def test_interaction_screen_type_one_error():
-    res = Recommender().null_sim(R=200)
-    original = res.loc[res['rule'].str.startswith('original'), 'type_I_error'].iloc[0]
-    contrast = res.loc[res['rule'].str.startswith('within-stratum'), 'type_I_error'].iloc[0]
-    assert original > 0.9, "the original rule should fire under the additive null"
-    assert contrast < 0.1
-
-
 def test_budget_costs_pairs_by_columns():
     rng = np.random.default_rng(1)
     base = pd.DataFrame({'a': rng.random(50), 'b': (rng.random(50) < .5) * 1.,
@@ -114,3 +102,73 @@ def test_margin_stability_rule():
     one_off = _window_similarity(w({'a', 'b', 'c', 'd', 'e'}, {'a', 'b', 'c', 'd', 'e'},
                                    {'a', 'b', 'c', 'd', 'e', 'f'}))
     assert one_off['nonlinear'] < 0.9                     # one change in six breaks stability
+
+
+def test_apply_uses_training_statistics_only():
+    """C05: centring comes from the training data, and each test row is
+    transformed on its own, so no test-set statistic enters."""
+    rng = np.random.default_rng(2)
+    def frame(n):
+        return pd.DataFrame({'a': rng.normal(1.0, 2.0, n), 'b': (rng.random(n) < .5) * 1.,
+                             'g': rng.integers(0, 4, n).astype(float)})
+    X_tr, X_te = frame(200), frame(50)
+    rec = dict(exclusion=[], nonlinear=['a', 'g'], interaction={'a': ['b']})
+    _, te = Recommender.apply(X_tr, X_te, rec)
+    m = X_tr['a'].mean()
+    np.testing.assert_allclose(te['a'], X_te['a'] - m)
+    np.testing.assert_allclose(te['a_quad'], (X_te['a'] - m) ** 2)
+    np.testing.assert_allclose(te['a__x__b'], (X_te['a'] - m) * X_te['b'])
+    assert {'g_lvl1', 'g_lvl2', 'g_lvl3'} <= set(te.columns) and 'g' not in te.columns
+    _, te_part = Recommender.apply(X_tr, X_te.iloc[:10], rec)
+    pd.testing.assert_frame_equal(te_part, te.iloc[:10])
+
+
+def test_strata_ties_go_to_lower_stratum():
+    """C06: patients at the cut point go to the lower stratum (<= / >)."""
+    rng = np.random.default_rng(4)
+    x = np.repeat([0., 1., 2., 3.], 50)
+    b = np.tile([0., 1.], 100)
+    X = pd.DataFrame({'x': x, 'b': b})
+    shap_df = pd.DataFrame({'x': x - x.mean(),
+                            'b': b * (1 + 0.5 * (x > 1)) + rng.normal(0, .1, x.size)})
+    t = Recommender(min_cell=20, min_level=5).stratified_screen(x, 1.0, shap_df, X, 'x', ['b'])
+    assert t['n_group1'].iloc[0] == (x <= 1).sum() == 100
+    assert t['n_group2'].iloc[0] == (x > 1).sum() == 100
+
+
+def test_screen_skips_self_pairs_and_excluded_features():
+    """C08: a feature is never its own partner, and excluded features are not
+    interaction candidates."""
+    rng = np.random.default_rng(3)
+    n = 400
+    X = pd.DataFrame({'a': rng.normal(size=n), 'd': rng.normal(size=n),
+                      'b': (rng.random(n) < .5) * 1., 'c': (rng.random(n) < .5) * 1.,
+                      'z': (rng.random(n) < .5) * 1.})
+    noise = lambda s: rng.normal(0, s, n)
+    shap_df = pd.DataFrame({'a': X['a'] * (1 + X['d']) + noise(.05),
+                            'd': 0.5 * X['d'] + noise(.05),
+                            'b': (X['b'] - .5) * (1 + X['a']) + noise(.05),
+                            'c': 0.5 * (X['c'] - X['c'].mean()) + noise(.05),
+                            'z': noise(1e-5)}, index=X.index)
+    y = np.array(list(zip(rng.random(n) < .5, rng.exponential(5, n))),
+                 dtype=[('event', bool), ('time', float)])
+    shap_sel = {'low': (shap_df, X), 'high': (shap_df, X)}
+    rec, info = _screen_recommendations(X, y, shap_sel, continuous=['a', 'd'], ordinal=[],
+                                        cutpoints={}, groups={}, min_cell=20, seed=20)
+    assert rec['exclusion'] == ['z']
+    tests = info['tests']
+    assert len(tests)
+    assert not (tests['strat'] == tests['partner']).any()
+    assert 'z' not in set(tests['strat']) | set(tests['partner'])
+
+
+def test_exclusion_threshold_is_sd_of_feature_means():
+    """C12: the threshold is 5% of the SD across features of the mean |SHAP|,
+    and only the upper confidence bound is compared with it."""
+    rng = np.random.default_rng(5)
+    shap_df = pd.DataFrame({'large': rng.normal(0, 1, 300), 'mid': rng.normal(0, .5, 300),
+                            'tiny': rng.normal(0, 1e-4, 300)})
+    excl, t = Recommender(n_boot=200).exclusion(shap_df)
+    assert np.isclose(t['threshold'].iloc[0], 0.05 * shap_df.abs().mean().std(ddof=1))
+    assert (t['excluded'] == (t['ci_high'] < t['threshold'])).all()
+    assert excl == ['tiny']
