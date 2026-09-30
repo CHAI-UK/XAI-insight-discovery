@@ -79,6 +79,24 @@ Additional analyses (step 5, open data only):
 | `results/<data>_survival_target_recommendations.csv`, `..._models.csv` | Recommendations from attributions of 1 − S(t0) against the main run, and the resulting final model on the test set; attributions in `results/<data>_shap_values_surv_<low\|high>.csv` |
 | `results/<data>_extras_settings.json` | Settings of the additional analyses |
 
+## Simulations
+`simulations.py` checks the interaction screen and the non-linearity rule on simulated data, calling the shared code unchanged:
+```
+python simulations.py            # full run, several hours; resumes if interrupted
+python simulations.py --quick    # a few replicates, for checking
+```
+- **Attribution level** (the setting of reviewer comment 1): two strata of 2,362 and 4,566 patients, a binary comorbidity at 5% and 25% prevalence, and a strictly additive log hazard, with exact attributions plus noise. It compares the published rule (a stratum-specific reference and a Wilcoxon rank-sum test) with the current within-stratum contrast, for type I error and for power when the log hazard includes a product term.
+- **Whole pipeline:** survival times from a Cox model with known main effects and interactions; a random survival forest (300 trees) or the true risk function as the exploratory model; then KernelSHAP, the margin search, the three rules, the reference Cox model check and the parameter budget, as `recommend` runs them. Scenarios: an additive model, three interactions (binary × binary, continuous × continuous, binary × continuous), and one feature per shape for the non-linearity rule (no effect, linear, quadratic, hinge, sine, a nominal feature coded 0–3, an ordinal feature with a linear effect).
+
+| File | Content |
+|---|---|
+| `results/sim_attribution_level.csv` | Rejection rate of each design and test, by interaction size and noise |
+| `results/sim_interaction_summary.csv` | Per scenario and exploratory model: share of replicates with a false pair screened, confirmed in the Cox model, and entered; share finding the true pair |
+| `results/sim_nonlinear_summary.csv` | Per feature: share of replicates flagged as non-linear by the current rule and by the published rule (\|r\| < 0.1). The no-effect feature is named `null`; read the summaries with `pd.read_csv(..., keep_default_na=False)` or it becomes NaN |
+| `results/sim_exclusion_summary.csv` | Per feature: share of replicates in which it is excluded |
+| `results/sim_pipeline_replicates.jsonl` | One record per replicate |
+| `results/sim_settings.json` | Settings |
+
 ## Interactive Test
 Once you have installed necessary packages (see steps above), you can also try an interactive [demo](./demo.ipynb).
 

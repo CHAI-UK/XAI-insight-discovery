@@ -299,3 +299,46 @@ def test_confirmed_pairs_are_those_that_passed_the_cox_check():
                               selected=[True, True, False, False]))
     assert confirmed_pairs(tests) == {'b': ['a']}
     assert confirmed_pairs(tests.drop(columns='screen_selected')) == {}
+
+
+# ---- simulations (C10, C11) ------------------------------------------------------
+def test_reviewer_attributions_are_exact_shapley_values():
+    """The closed-form attributions of simulations.reviewer_attributions equal
+    KernelSHAP (exact with two features) of eta = b y + c s + gamma y s."""
+    import shap
+    from simulations import reviewer_attributions
+    rng = np.random.default_rng(0)
+    b, c, g = 0.8, 0.5, 0.3
+    X, published, current = reviewer_attributions(rng, n=(40, 60), b=b, c=c, gamma=g, noise=0.0)
+    f = lambda Z: b * Z[:, 1] + c * Z[:, 0] + g * Z[:, 0] * Z[:, 1]      # columns (s, y)
+    ref = X.mean().to_numpy()[None, :]
+    exact = shap.KernelExplainer(f, ref).shap_values(X.to_numpy()[:10], silent=True)
+    np.testing.assert_allclose(current[['s', 'y']].to_numpy()[:10], exact, atol=1e-8)
+    s1 = X['s'] == 1                                        # the stratum's own mean row
+    ref1 = X[s1].mean().to_numpy()[None, :]
+    exact1 = shap.KernelExplainer(f, ref1).shap_values(X[s1].to_numpy()[:10], silent=True)
+    np.testing.assert_allclose(published.loc[s1, ['s', 'y']].to_numpy()[:10], exact1, atol=1e-8)
+
+
+def test_contrast_screen_holds_size_under_the_reviewers_null():
+    """The reviewer's setup (strata of 2,362 and 4,566, prevalence 5% and 25%,
+    additive log hazard): the published rank-sum rule rejects almost always,
+    the within-stratum contrast at about the nominal rate."""
+    from simulations import simulate_attributions
+    r = simulate_attributions(200, grid=((0.0, 0.15),)).set_index(['reference', 'test'])['rejection_rate']
+    assert r[('published reference', 'Wilcoxon rank-sum (published)')] > 0.95
+    assert r[('current reference', 'within-stratum contrast (current)')] < 0.1
+    assert r[('published reference', 'within-stratum contrast (current)')] < 0.1
+
+
+def test_oracle_pipeline_on_an_additive_model():
+    """Explaining the true additive risk gives exact attributions: the
+    no-effect feature is excluded, only the quadratic one is flagged as
+    non-linear, and no pair passes the dispersion gate."""
+    from simulations import scenario_spec, simulate_data, TrueRisk, run_pipeline
+    spec = scenario_spec('additive')
+    X, y = simulate_data(spec, 1500, np.random.default_rng(3))
+    _, _, rec_pre, info, rec, _ = run_pipeline(TrueRisk(spec, X.columns), X, y, spec)
+    assert rec_pre['exclusion'] == ['z']
+    assert rec_pre['nonlinear'] == ['x2']
+    assert not len(info['tests']) and rec['interaction'] == {}
