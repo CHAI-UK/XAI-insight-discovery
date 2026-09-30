@@ -114,7 +114,9 @@ def run_recommend(*args, tag, out_dir=RESULT_DIR, **kwargs):
                                     two subcohorts at the chosen margin
 
     Returns recommend()'s (rec, info), with info['settings'] holding every
-    argument recommend() ran with, defaults included.
+    argument recommend() ran with, defaults included, and info['screen_call']
+    the screening call at the chosen margin (its arguments and result), for
+    public_extras.
     """
     bound = inspect.signature(utils.recommend).bind(*args, tag=tag, **kwargs)
     bound.apply_defaults()
@@ -134,6 +136,7 @@ def run_recommend(*args, tag, out_dir=RESULT_DIR, **kwargs):
 
     data_args = ('ex_model', 'X_train', 'y_train')
     info['settings'] = {k: v for k, v in bound.arguments.items() if k not in data_args}
+    info['screen_call'] = call
     return rec, info
 
 

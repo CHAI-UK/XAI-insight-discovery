@@ -8,6 +8,7 @@ from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder, StandardScaler
 from utils import (MetricEval, CalibrationPerform, get_model, as_surv, evaluation_times,
                    evaluate_recommendations)
 from public_analyses import run_recommend, write_run_record, final_cox_table
+from public_extras import run_extras
 
 os.makedirs('plots/aids', exist_ok=True)
 os.makedirs('results', exist_ok=True)
@@ -78,3 +79,10 @@ evaluate_recommendations(rec, X_train, X_test, y_train, y_test, t0=T0, tag='act'
 final_cox_table(rec, X_train, y_train, 'act', groups=groups)
 write_run_record('act', split=dict(test_size=TEST_SIZE, random_state=SEED, stratified=False),
                  ex_model=ex_model, t0=T0, info=info, eval_times=evaluation_times(y_train))
+
+## Additional analyses (open data only; not part of the DataLoch analysis)
+# Interaction sensitivity model, calibration intercept, global PH tests,
+# events per parameter, coefficient and selection stability, ablation, and
+# attributions of 1 - S(t0); see public_extras.py
+run_extras(rec, info, ex_model, X_train, X_test, y_train, y_test, t0=T0, tag='act',
+           groups=groups, plot_dir='plots/aids/')

@@ -214,3 +214,88 @@ def test_final_cox_table_matches_the_fitted_model(gbsg2_fit, tmp_path):
     np.testing.assert_allclose(tab['HR'], np.exp(model.coef_))
     assert ((tab['HR_low'] < tab['HR']) & (tab['HR'] < tab['HR_high'])).all()
     assert (tmp_path / 'toy_final_cox_hr.tsv').exists()
+
+
+# ---- public_extras (open data only) ------------------------------------------
+def test_global_schoenfeld_reproduces_lifelines(gbsg2_fit):
+    """The global test reproduces lifelines per term, and with one term the
+    global and per-term statistics coincide."""
+    from lifelines import CoxPHFitter
+    from lifelines.statistics import proportional_hazard_test
+    from public_extras import schoenfeld_tests, _ph_frame
+    _, X, y = gbsg2_fit
+    for cols in (['tsize', 'age', 'pnodes'], ['pnodes']):      # not in alphabetical order
+        d = _ph_frame(X[cols], y)
+        f = CoxPHFitter(penalizer=0.01).fit(d, 'time', 'event')
+        per, glob = schoenfeld_tests(f, d, 'km')
+        ref = proportional_hazard_test(f, d, time_transform='km').summary['test_statistic']
+        assert list(per['term']) == cols
+        np.testing.assert_allclose(per['test_statistic'], ref.loc[cols], rtol=1e-8)
+        assert glob['df'] == len(cols)
+    assert np.isclose(glob['test_statistic'], per['test_statistic'].iloc[0])
+
+
+def test_calibration_in_the_large_is_zero_on_training_data(gbsg2_fit):
+    """With Breslow ties and the Breslow baseline hazard, the cumulative
+    hazards of the training patients sum to the number of events, so O/E = 1
+    when t0 is the last follow-up time."""
+    from public_extras import calibration_in_the_large
+    _, X, y = gbsg2_fit
+    X = X[['age', 'pnodes', 'tsize', 'progrec']]
+    m = CoxPHSurvivalAnalysis(alpha=0, ties='breslow').fit(X, y)
+    r = calibration_in_the_large(m, X, y, t0=float(y['time'].max()))
+    assert r['observed_events'] == int(y['event'].sum())
+    assert abs(r['citl']) < 1e-6
+    shorter = calibration_in_the_large(m, X, y, t0=float(np.median(y['time'])))
+    assert shorter['observed_events'] < r['observed_events']
+
+
+def test_survival_target_explains_risk_by_t0(gbsg2_fit):
+    """log(predict) of the wrapper is 1 - S(t0), and n_jobs passes through."""
+    from sksurv.ensemble import RandomSurvivalForest
+    from public_extras import SurvivalTarget
+    _, X, y = gbsg2_fit
+    rsf = RandomSurvivalForest(n_estimators=10, min_samples_leaf=15, random_state=0, n_jobs=2).fit(X, y)
+    t0 = float(np.median(y['time']))
+    target = SurvivalTarget(rsf, t0)
+    expected = 1 - np.array([fn(t0) for fn in rsf.predict_survival_function(X.iloc[:5])])
+    np.testing.assert_allclose(np.log(target.predict(X.iloc[:5])), expected)
+    assert target.n_jobs == 2 and target.set_params(n_jobs=1).n_jobs == 1
+
+
+def test_subcohort_resample_keeps_rows_aligned():
+    from public_extras import _resample
+    X, _, shap_sel = _screen_data(n=100)
+    out = _resample(shap_sel, np.random.default_rng(0))
+    for lv, (sh, sel) in out.items():
+        assert sh.index.is_unique and (sh.index == sel.index).all()
+        # each resampled attribution row belongs to the resampled patient
+        orig_sh, orig_x = shap_sel[lv]
+        match = orig_x.reset_index(drop=True).merge(sel.reset_index(), on=list(sel.columns))
+        assert len(match) >= len(sel)
+
+
+def test_ablation_steps_add_up_to_the_total_gain(gbsg2_fit, tmp_path):
+    """Under every ordering the per-step gains in C sum to the gain of the
+    model with all recommendations, and the full subset is Cox_all."""
+    from public_extras import ablation
+    _, X, y = gbsg2_fit
+    X = X[['age', 'pnodes', 'horTh=yes', 'tsize', 'progrec']]
+    Xtr, Xte, ytr, yte = X.iloc[:120], X.iloc[120:], y[:120], y[120:]
+    rec = dict(exclusion=['progrec'], nonlinear=['age'], interaction={'pnodes': ['horTh=yes']})
+    subsets, orders = ablation(rec, Xtr, Xte, ytr, yte, 'toy', evaluator=MetricEval(50),
+                               out_dir=str(tmp_path))
+    assert len(subsets) == 8 and orders['order'].nunique() == 6
+    total = subsets.set_index('components').loc['exclusion + nonlinear + interaction',
+                                                 'delta_c_vs_baseline']
+    np.testing.assert_allclose(orders.groupby('order')['delta_c_step'].sum(), total)
+
+
+def test_confirmed_pairs_are_those_that_passed_the_cox_check():
+    from public_extras import confirmed_pairs
+    tests = pd.DataFrame(dict(pair=['a||b', 'a||b', 'c||d', 'e||f'], strat=['a', 'b', 'c', 'e'],
+                              partner=['b', 'a', 'd', 'f'], effect_vs_scale=[.3, .5, .2, .9],
+                              screen_selected=[True, True, True, False],
+                              selected=[True, True, False, False]))
+    assert confirmed_pairs(tests) == {'b': ['a']}
+    assert confirmed_pairs(tests.drop(columns='screen_selected')) == {}
