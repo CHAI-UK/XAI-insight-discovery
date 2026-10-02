@@ -1,0 +1,6 @@
+kind,main,survival_target,n_main,n_survival_target,jaccard
+exclusion,hemophil,hemophil,1,1,1.0
+nonlinear,age; cd4; karnof; priorzdv,age; cd4; karnof; priorzdv,4,4,1.0
+interaction_screened,age||cd4; age||priorzdv; age||raceth; age||strat2; age||tx; cd4||raceth; cd4||sex; cd4||strat2; cd4||tx; ivdrug||karnof; ivdrug||priorzdv; ivdrug||raceth; ivdrug||sex; ivdrug||strat2; karnof||priorzdv; karnof||raceth; karnof||sex; karnof||strat2; priorzdv||sex; priorzdv||strat2; priorzdv||tx; raceth||sex; raceth||strat2; raceth||tx; sex||tx,age||cd4; age||raceth; cd4||ivdrug; cd4||karnof; cd4||priorzdv; cd4||raceth; cd4||tx; ivdrug||karnof; ivdrug||priorzdv; ivdrug||raceth; ivdrug||strat2; ivdrug||tx; karnof||priorzdv; karnof||raceth; karnof||sex; karnof||strat2; priorzdv||raceth; priorzdv||sex; priorzdv||strat2; priorzdv||tx; raceth||sex; raceth||strat2; raceth||tx; sex||strat2; strat2||tx,25,25,0.5625
+interaction_confirmed,ivdrug||priorzdv,ivdrug||priorzdv,1,1,1.0
+interaction_entered,,,0,0,1.0

@@ -1,0 +1,16 @@
+{
+  "t0": 3.0,
+  "seed": 20,
+  "n_boot_coefficients": 500,
+  "n_boot_selection": 500,
+  "shrinkage": 0.9,
+  "survival_target": true,
+  "interaction_sensitivity_pairs": [
+    "betablok||resting.hr"
+  ],
+  "ph": {
+    "penalizer": 0.01,
+    "time_transform": "km"
+  },
+  "calibration_intercept": "Crowson et al. 2016: log(O/E) up to t0, SE 1/sqrt(O)"
+}

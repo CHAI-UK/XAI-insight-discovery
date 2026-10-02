@@ -1,0 +1,37 @@
+interactions,order,step,added,applied,n_parameters,delta_c_step,delta_ci_low,delta_ci_high,delta_p
+recommended,exclusion > nonlinear > interaction,1,exclusion,exclusion,30,0.0019359340881974774,-0.00374574027972322,0.007553657199894863,0.482
+recommended,exclusion > nonlinear > interaction,2,nonlinear,exclusion + nonlinear,43,0.004412128852171238,-0.0045291229844843985,0.01356361053931736,0.348
+recommended,exclusion > nonlinear > interaction,3,interaction,exclusion + nonlinear + interaction,43,0.0,0.0,0.0,1.0
+recommended,exclusion > interaction > nonlinear,1,exclusion,exclusion,30,0.0019359340881974774,-0.00374574027972322,0.007553657199894863,0.482
+recommended,exclusion > interaction > nonlinear,2,interaction,exclusion + interaction,30,0.0,0.0,0.0,1.0
+recommended,exclusion > interaction > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,43,0.004412128852171238,-0.0045291229844843985,0.01356361053931736,0.348
+recommended,nonlinear > exclusion > interaction,1,nonlinear,nonlinear,52,0.005019922112419195,-0.004412654766379018,0.014513255343036768,0.274
+recommended,nonlinear > exclusion > interaction,2,exclusion,exclusion + nonlinear,43,0.00132814082794952,-0.005009709065868237,0.0073180397985566385,0.63
+recommended,nonlinear > exclusion > interaction,3,interaction,exclusion + nonlinear + interaction,43,0.0,0.0,0.0,1.0
+recommended,nonlinear > interaction > exclusion,1,nonlinear,nonlinear,52,0.005019922112419195,-0.004412654766379018,0.014513255343036768,0.274
+recommended,nonlinear > interaction > exclusion,2,interaction,nonlinear + interaction,52,0.0,0.0,0.0,1.0
+recommended,nonlinear > interaction > exclusion,3,exclusion,exclusion + nonlinear + interaction,43,0.00132814082794952,-0.005009709065868237,0.0073180397985566385,0.63
+recommended,interaction > exclusion > nonlinear,1,interaction,interaction,39,0.0,0.0,0.0,1.0
+recommended,interaction > exclusion > nonlinear,2,exclusion,exclusion + interaction,30,0.0019359340881974774,-0.00374574027972322,0.007553657199894863,0.482
+recommended,interaction > exclusion > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,43,0.004412128852171238,-0.0045291229844843985,0.01356361053931736,0.348
+recommended,interaction > nonlinear > exclusion,1,interaction,interaction,39,0.0,0.0,0.0,1.0
+recommended,interaction > nonlinear > exclusion,2,nonlinear,nonlinear + interaction,52,0.005019922112419195,-0.004412654766379018,0.014513255343036768,0.274
+recommended,interaction > nonlinear > exclusion,3,exclusion,exclusion + nonlinear + interaction,43,0.00132814082794952,-0.005009709065868237,0.0073180397985566385,0.63
+"confirmed, budget ignored",exclusion > nonlinear > interaction,1,exclusion,exclusion,30,0.0019359340881974774,-0.00374574027972322,0.007553657199894863,0.482
+"confirmed, budget ignored",exclusion > nonlinear > interaction,2,nonlinear,exclusion + nonlinear,43,0.004412128852171238,-0.0045291229844843985,0.01356361053931736,0.348
+"confirmed, budget ignored",exclusion > nonlinear > interaction,3,interaction,exclusion + nonlinear + interaction,44,-0.004119487652792464,-0.012339428805379676,0.00418096118426115,0.356
+"confirmed, budget ignored",exclusion > interaction > nonlinear,1,exclusion,exclusion,30,0.0019359340881974774,-0.00374574027972322,0.007553657199894863,0.482
+"confirmed, budget ignored",exclusion > interaction > nonlinear,2,interaction,exclusion + interaction,31,-0.0007653692906827159,-0.009617493880355463,0.007689135540574469,0.858
+"confirmed, budget ignored",exclusion > interaction > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,44,0.0010580104900614895,-0.008236599438632572,0.010230581756089027,0.828
+"confirmed, budget ignored",nonlinear > exclusion > interaction,1,nonlinear,nonlinear,52,0.005019922112419195,-0.004412654766379018,0.014513255343036768,0.274
+"confirmed, budget ignored",nonlinear > exclusion > interaction,2,exclusion,exclusion + nonlinear,43,0.00132814082794952,-0.005009709065868237,0.0073180397985566385,0.63
+"confirmed, budget ignored",nonlinear > exclusion > interaction,3,interaction,exclusion + nonlinear + interaction,44,-0.004119487652792464,-0.012339428805379676,0.00418096118426115,0.356
+"confirmed, budget ignored",nonlinear > interaction > exclusion,1,nonlinear,nonlinear,52,0.005019922112419195,-0.004412654766379018,0.014513255343036768,0.274
+"confirmed, budget ignored",nonlinear > interaction > exclusion,2,interaction,nonlinear + interaction,53,-0.0037142921459604183,-0.01208553741007197,0.004841104932147847,0.408
+"confirmed, budget ignored",nonlinear > interaction > exclusion,3,exclusion,exclusion + nonlinear + interaction,44,0.0009229453211174743,-0.004761938937826063,0.00692284778071106,0.746
+"confirmed, budget ignored",interaction > exclusion > nonlinear,1,interaction,interaction,40,-0.002093510118632236,-0.010519781148493706,0.006442680276621403,0.644
+"confirmed, budget ignored",interaction > exclusion > nonlinear,2,exclusion,exclusion + interaction,31,0.0032640749161469973,-0.0020101127148458714,0.009325676657335897,0.226
+"confirmed, budget ignored",interaction > exclusion > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,44,0.0010580104900614895,-0.008236599438632572,0.010230581756089027,0.828
+"confirmed, budget ignored",interaction > nonlinear > exclusion,1,interaction,interaction,40,-0.002093510118632236,-0.010519781148493706,0.006442680276621403,0.644
+"confirmed, budget ignored",interaction > nonlinear > exclusion,2,nonlinear,nonlinear + interaction,53,0.0033991400850910125,-0.005892111437539715,0.012867422081195241,0.456
+"confirmed, budget ignored",interaction > nonlinear > exclusion,3,exclusion,exclusion + nonlinear + interaction,44,0.0009229453211174743,-0.004761938937826063,0.00692284778071106,0.746

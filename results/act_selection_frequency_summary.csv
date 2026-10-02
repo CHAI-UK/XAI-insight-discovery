@@ -1,0 +1,6 @@
+kind,n_boot,n_failed,n_main,mean_jaccard_vs_main,share_identical_to_main,mean_n
+exclusion,500,0,1,1.0,1.0,1.0
+nonlinear,500,0,4,1.0,1.0,4.0
+interaction_screened,500,0,25,0.7315794124489694,0.0,26.804
+interaction_confirmed,500,0,1,1.0,1.0,1.0
+interaction_entered,500,0,0,1.0,1.0,0.0

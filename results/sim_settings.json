@@ -1,0 +1,195 @@
+{
+  "alpha": 0.05,
+  "reps_attribution": 1000,
+  "reps_null": 200,
+  "reps_alt": 100,
+  "n": 2000,
+  "rsf": {
+    "n_estimators": 300,
+    "note": "other settings as utils.get_model"
+  },
+  "recommend_defaults": {
+    "min_cell": 20,
+    "min_n": 100,
+    "grid": [
+      0.05,
+      0.1,
+      0.2,
+      0.3,
+      0.5,
+      1.0
+    ],
+    "target": 0.9,
+    "stable_steps": 2,
+    "nsamples": "auto",
+    "seed": 20,
+    "shrinkage": 0.9
+  },
+  "scenarios": {
+    "additive": {
+      "pairs": {},
+      "main": {
+        "old": [
+          "lin",
+          0.7
+        ],
+        "comorb": [
+          "lin",
+          0.8
+        ],
+        "x1": [
+          "lin",
+          0.5
+        ],
+        "x2": [
+          "quad",
+          0.25
+        ],
+        "b2": [
+          "lin",
+          0.4
+        ],
+        "z": [
+          "none",
+          0.0
+        ]
+      }
+    },
+    "old x comorb": {
+      "pairs": {
+        "oldxcomorb": 0.8
+      },
+      "main": {
+        "old": [
+          "lin",
+          0.7
+        ],
+        "comorb": [
+          "lin",
+          0.8
+        ],
+        "x1": [
+          "lin",
+          0.5
+        ],
+        "x2": [
+          "quad",
+          0.25
+        ],
+        "b2": [
+          "lin",
+          0.4
+        ],
+        "z": [
+          "none",
+          0.0
+        ]
+      }
+    },
+    "x1 x x2": {
+      "pairs": {
+        "x1xx2": 0.4
+      },
+      "main": {
+        "old": [
+          "lin",
+          0.7
+        ],
+        "comorb": [
+          "lin",
+          0.8
+        ],
+        "x1": [
+          "lin",
+          0.5
+        ],
+        "x2": [
+          "quad",
+          0.25
+        ],
+        "b2": [
+          "lin",
+          0.4
+        ],
+        "z": [
+          "none",
+          0.0
+        ]
+      }
+    },
+    "old x x1": {
+      "pairs": {
+        "oldxx1": 0.5
+      },
+      "main": {
+        "old": [
+          "lin",
+          0.7
+        ],
+        "comorb": [
+          "lin",
+          0.8
+        ],
+        "x1": [
+          "lin",
+          0.5
+        ],
+        "x2": [
+          "quad",
+          0.25
+        ],
+        "b2": [
+          "lin",
+          0.4
+        ],
+        "z": [
+          "none",
+          0.0
+        ]
+      }
+    },
+    "nonlinear shapes": {
+      "pairs": {},
+      "main": {
+        "null": [
+          "none",
+          0.0
+        ],
+        "lin": [
+          "lin",
+          0.5
+        ],
+        "quad": [
+          "quad",
+          0.4
+        ],
+        "hinge": [
+          "hinge",
+          0.8
+        ],
+        "sine": [
+          "sine",
+          0.6
+        ],
+        "cat": [
+          "levels",
+          [
+            0.0,
+            0.6,
+            -0.3,
+            0.4
+          ]
+        ],
+        "ordlin": [
+          "lin",
+          0.2
+        ],
+        "bin": [
+          "lin",
+          0.5
+        ]
+      }
+    }
+  },
+  "failed": 1
+}

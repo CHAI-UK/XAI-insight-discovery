@@ -1,0 +1,13 @@
+,0
+margin,0.5
+margin_stable,True
+margin_selection_rule,stable_recommendations
+subcohort_low,126
+subcohort_high,148
+n_tests,64
+n_pairs_tested,22
+n_pairs_screened,2
+n_pairs_held,0
+riley_p_max,11
+interaction_budget,0
+n_pairs_entered,0

@@ -1,0 +1,19 @@
+interactions,order,step,added,applied,n_parameters,delta_c_step,delta_ci_low,delta_ci_high,delta_p
+recommended,exclusion > nonlinear > interaction,1,exclusion,exclusion,8,0.0,0.0,0.0,1.0
+recommended,exclusion > nonlinear > interaction,2,nonlinear,exclusion + nonlinear,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,exclusion > nonlinear > interaction,3,interaction,exclusion + nonlinear + interaction,14,0.0,0.0,0.0,1.0
+recommended,exclusion > interaction > nonlinear,1,exclusion,exclusion,8,0.0,0.0,0.0,1.0
+recommended,exclusion > interaction > nonlinear,2,interaction,exclusion + interaction,8,0.0,0.0,0.0,1.0
+recommended,exclusion > interaction > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,nonlinear > exclusion > interaction,1,nonlinear,nonlinear,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,nonlinear > exclusion > interaction,2,exclusion,exclusion + nonlinear,14,0.0,0.0,0.0,1.0
+recommended,nonlinear > exclusion > interaction,3,interaction,exclusion + nonlinear + interaction,14,0.0,0.0,0.0,1.0
+recommended,nonlinear > interaction > exclusion,1,nonlinear,nonlinear,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,nonlinear > interaction > exclusion,2,interaction,nonlinear + interaction,14,0.0,0.0,0.0,1.0
+recommended,nonlinear > interaction > exclusion,3,exclusion,exclusion + nonlinear + interaction,14,0.0,0.0,0.0,1.0
+recommended,interaction > exclusion > nonlinear,1,interaction,interaction,8,0.0,0.0,0.0,1.0
+recommended,interaction > exclusion > nonlinear,2,exclusion,exclusion + interaction,8,0.0,0.0,0.0,1.0
+recommended,interaction > exclusion > nonlinear,3,nonlinear,exclusion + nonlinear + interaction,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,interaction > nonlinear > exclusion,1,interaction,interaction,8,0.0,0.0,0.0,1.0
+recommended,interaction > nonlinear > exclusion,2,nonlinear,nonlinear + interaction,14,0.03444957659738268,-0.004934390936222594,0.07596015632759141,0.088
+recommended,interaction > nonlinear > exclusion,3,exclusion,exclusion + nonlinear + interaction,14,0.0,0.0,0.0,1.0

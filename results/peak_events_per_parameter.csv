@@ -1,0 +1,11 @@
+row,name,n,events,n_parameters,n_interaction_terms,events_per_parameter,riley_p_max
+split,train,1784,585,,,,
+split,test,447,141,,,,
+subcohort,low,287,12,,,,
+subcohort,high,243,116,,,,
+model,Cox_org,1784,585,39.0,0.0,15.0,38.0
+model,Cox_exclu,1784,585,30.0,0.0,19.5,38.0
+model,Cox_nonlinear,1784,585,52.0,0.0,11.25,38.0
+model,Cox_inter,1784,585,39.0,0.0,15.0,38.0
+model,Cox_all,1784,585,43.0,0.0,13.604651162790697,38.0
+model,Cox_all_confirmed,1784,585,44.0,1.0,13.295454545454545,38.0

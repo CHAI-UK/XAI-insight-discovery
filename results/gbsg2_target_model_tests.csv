@@ -1,0 +1,3 @@
+pair,strat,partner,df,score_stat,target_p,target_p_fdr,target_confirmed
+estrec||pnodes,estrec,pnodes,1,0.004767703182971649,0.9449509690380113,0.9449509690380113,False
+horTh||pnodes,horTh,pnodes,1,1.5314133643207049,0.2159004478456513,0.4318008956913026,False
