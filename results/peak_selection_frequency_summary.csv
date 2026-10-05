@@ -1,6 +1,0 @@
-kind,n_boot,n_failed,n_main,mean_jaccard_vs_main,share_identical_to_main,mean_n
-exclusion,500,0,9,0.9606000000000001,0.676,8.756
-nonlinear,500,0,13,0.999076923076923,0.988,12.988
-interaction_screened,500,0,28,0.31914345805952393,0.0,62.85
-interaction_confirmed,500,0,1,0.902,0.9,0.908
-interaction_entered,500,0,0,1.0,1.0,0.0

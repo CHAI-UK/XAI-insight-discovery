@@ -1,6 +1,0 @@
-kind,main,survival_target,n_main,n_survival_target,jaccard
-exclusion,,,0,0,1.0
-nonlinear,age; estrec; pnodes; progrec; tgrade; tsize,age; estrec; pnodes; progrec; tgrade; tsize,6,6,1.0
-interaction_screened,estrec||pnodes; horTh||pnodes,horTh||pnodes; pnodes||tgrade,2,2,0.3333333333333333
-interaction_confirmed,,pnodes||tgrade,0,1,0.0
-interaction_entered,,,0,0,1.0

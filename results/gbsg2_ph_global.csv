@@ -1,3 +1,0 @@
-model,n_terms,n_terms_p_below_05,penalizer,test_statistic,df,p,time_transform,n_events
-Cox_org,8,1,0.01,16.86503861592434,8,0.03154550840754523,km,245
-Cox_all,14,2,0.01,23.390713506156267,14,0.054201736071222514,km,245

@@ -1,6 +1,0 @@
-margin,subcohort_low,subcohort_high,status,stability_eligible,n_exclusion,n_nonlinear,n_interaction,n_tests,n_pairs_tested,n_focal_unassessed,all_recommendations_empty,n_new_shap_low,n_new_shap_high,jaccard_exclusion,jaccard_nonlinear,jaccard_interaction,selected,stable,selection_rule,similarity_threshold,stable_steps,last_evaluated_margin,stability_window_end
-0.05,49,40,insufficient_subcohort,False,,,,0,0,,False,0,0,,,,False,True,stable_recommendations,0.9,2,0.5,0.5
-0.1,101,69,insufficient_subcohort,False,,,,0,0,,False,0,0,,,,False,True,stable_recommendations,0.9,2,0.5,0.5
-0.2,194,170,ok,True,8.0,13.0,1.0,1021,431,0.0,False,194,170,,,,False,True,stable_recommendations,0.9,2,0.5,0.5
-0.3,287,243,ok,True,9.0,13.0,1.0,1093,431,0.0,False,93,73,1.0,1.0,1.0,True,True,stable_recommendations,0.9,2,0.5,0.5
-0.5,442,401,ok,True,9.0,13.0,1.0,1128,433,0.0,False,155,158,1.0,1.0,1.0,False,True,stable_recommendations,0.9,2,0.5,0.5
