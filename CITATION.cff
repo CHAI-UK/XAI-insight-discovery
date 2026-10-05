@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: >-
+  Explainable AI to Guide the Design of Interpretable Cox Models, Applied to
+  Falls and Related Injuries in Adults Aged 50 Years or Older: Algorithm
+  Development and Validation
+abstract: >-
+  Code for the Exploratory AI Recommender: feature attributions of a random
+  survival forest are turned into recommendations (features to exclude,
+  non-linear terms and pairwise interactions) for a Cox proportional hazards
+  model, which is then evaluated on held-out data. The repository contains the
+  recommendation and evaluation code used for the main (DataLoch) analysis,
+  demonstrations on three open data sets (GBSG2, ACT and peakVO2), additional
+  analyses on those data sets, and simulations of the recommendation rules.
+  The data processing specific to DataLoch is not included.
+authors:
+  - family-names: Yan
+    given-names: Junyu
+    affiliation: >-
+      School of Engineering, University of Edinburgh; Causality in Healthcare
+      AI Hub (CHAI); Advanced Care Research Centre, Usher School of Population
+      Health Sciences, University of Edinburgh
+  - family-names: Machlanski
+    given-names: Damian
+    email: d.machlanski@ed.ac.uk
+    affiliation: >-
+      School of Engineering, University of Edinburgh; Causality in Healthcare
+      AI Hub (CHAI)
+  - family-names: Butler
+    given-names: Kurt
+    affiliation: >-
+      School of Engineering, University of Edinburgh; Causality in Healthcare
+      AI Hub (CHAI)
+  - family-names: Dimitrakopoulos
+    given-names: Panagiotis
+    affiliation: >-
+      School of Engineering, University of Edinburgh; Causality in Healthcare
+      AI Hub (CHAI)
+  - family-names: Harrison
+    given-names: Ewen M
+    affiliation: >-
+      Centre for Medical Informatics, Usher School of Population Health
+      Sciences, University of Edinburgh
+  - family-names: Guthrie
+    given-names: Bruce
+    affiliation: >-
+      Advanced Care Research Centre, Usher School of Population Health
+      Sciences, University of Edinburgh
+  - family-names: Tsaftaris
+    given-names: Sotirios A
+    affiliation: >-
+      School of Engineering, University of Edinburgh; Causality in Healthcare
+      AI Hub (CHAI)
+repository-code: "https://github.com/CHAI-UK/XAI-insight-discovery"
+license: MIT
+keywords:
+  - explainable artificial intelligence
+  - feature attribution
+  - SHAP
+  - Cox proportional hazards
+  - random survival forest
+  - risk prediction
+  - feature interactions
