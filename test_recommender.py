@@ -276,7 +276,7 @@ def test_subcohort_resample_keeps_rows_aligned():
 
 
 def test_ablation_steps_add_up_to_the_total_gain(gbsg2_fit, tmp_path):
-    """Under every ordering the per-step gains in C sum to the gain of the
+    """Under every ordering (exclusion first) the per-step gains in C sum to the gain of the
     model with all recommendations, and the full subset is Cox_all."""
     from public_extras import ablation
     _, X, y = gbsg2_fit
@@ -285,7 +285,8 @@ def test_ablation_steps_add_up_to_the_total_gain(gbsg2_fit, tmp_path):
     rec = dict(exclusion=['progrec'], nonlinear=['age'], interaction={'pnodes': ['horTh=yes']})
     subsets, orders = ablation(rec, Xtr, Xte, ytr, yte, 'toy', evaluator=MetricEval(50),
                                out_dir=str(tmp_path))
-    assert len(subsets) == 8 and orders['order'].nunique() == 6
+    assert len(subsets) == 8 and orders['order'].nunique() == 2
+    assert (orders.loc[orders['step'] == 1, 'added'] == 'exclusion').all()
     total = subsets.set_index('components').loc['exclusion + nonlinear + interaction',
                                                  'delta_c_vs_baseline']
     np.testing.assert_allclose(orders.groupby('order')['delta_c_step'].sum(), total)
@@ -301,44 +302,55 @@ def test_confirmed_pairs_are_those_that_passed_the_cox_check():
     assert confirmed_pairs(tests.drop(columns='screen_selected')) == {}
 
 
-# ---- simulations (C10, C11) ------------------------------------------------------
-def test_reviewer_attributions_are_exact_shapley_values():
-    """The closed-form attributions of simulations.reviewer_attributions equal
-    KernelSHAP (exact with two features) of eta = b y + c s + gamma y s."""
+# ---- interaction_simulation (C10, C11) -----------------------------------------
+def test_interaction_simulation_attributions_are_exact_shapley_values():
+    """With no attribution error, interaction_simulation.attributions gives
+    KernelSHAP (exact with two features) of eta = b y + c s + gamma y s, against
+    the subcohort's mean row (current) and each stratum's mean row (published)."""
     import shap
-    from simulations import reviewer_attributions
-    rng = np.random.default_rng(0)
+    from interaction_simulation import attributions
     b, c, g = 0.8, 0.5, 0.3
-    X, published, current = reviewer_attributions(rng, n=(40, 60), b=b, c=c, gamma=g, noise=0.0)
+    X, designs = attributions(np.random.default_rng(0), gamma=g, noise=0.0, n=(40, 60), b=b, c=c)
     f = lambda Z: b * Z[:, 1] + c * Z[:, 0] + g * Z[:, 0] * Z[:, 1]      # columns (s, y)
     ref = X.mean().to_numpy()[None, :]
     exact = shap.KernelExplainer(f, ref).shap_values(X.to_numpy()[:10], silent=True)
-    np.testing.assert_allclose(current[['s', 'y']].to_numpy()[:10], exact, atol=1e-8)
-    s1 = X['s'] == 1                                        # the stratum's own mean row
+    np.testing.assert_allclose(designs['current reference'][['s', 'y']].to_numpy()[:10], exact,
+                               atol=1e-8)
+    s1 = (X['s'] == 1).to_numpy()                           # the stratum's own mean row
     ref1 = X[s1].mean().to_numpy()[None, :]
     exact1 = shap.KernelExplainer(f, ref1).shap_values(X[s1].to_numpy()[:10], silent=True)
-    np.testing.assert_allclose(published.loc[s1, ['s', 'y']].to_numpy()[:10], exact1, atol=1e-8)
+    np.testing.assert_allclose(designs['published reference'].loc[s1, ['s', 'y']].to_numpy()[:10],
+                               exact1, atol=1e-8)
 
 
-def test_contrast_screen_holds_size_under_the_reviewers_null():
-    """The reviewer's setup (strata of 2,362 and 4,566, prevalence 5% and 25%,
-    additive log hazard): the published rank-sum rule rejects almost always,
-    the within-stratum contrast at about the nominal rate."""
-    from simulations import simulate_attributions
-    r = simulate_attributions(200, grid=((0.0, 0.15),)).set_index(['reference', 'test'])['rejection_rate']
-    assert r[('published reference', 'Wilcoxon rank-sum (published)')] > 0.95
-    assert r[('current reference', 'within-stratum contrast (current)')] < 0.1
-    assert r[('published reference', 'within-stratum contrast (current)')] < 0.1
+def test_contrast_screen_holds_size_under_the_additive_null():
+    """Strata of 2,362 and 4,566, prevalence 5% and 25%, additive log hazard:
+    the Wilcoxon rank-sum rule rejects almost always, the within-stratum
+    contrast at about the nominal rate under either reference, and the current
+    rule detects gamma = 0.2."""
+    from interaction_simulation import attributions, p_values, CURRENT
+    reps = 200
+    rng = np.random.default_rng([20, 0])
+    rej = {}
+    for _ in range(reps):
+        for key, (p, _) in p_values(*attributions(rng, 0.0)).items():
+            rej[key] = rej.get(key, 0) + (p < 0.05) / reps
+    for ref in ('published reference', 'current reference'):
+        assert rej[(ref, 'Wilcoxon rank-sum (published)')] > 0.95
+        assert rej[(ref, 'within-stratum contrast (current)')] < 0.1
+    rng = np.random.default_rng([20, 200])
+    power = np.mean([p_values(*attributions(rng, 0.2))[CURRENT][0] < 0.05 for _ in range(50)])
+    assert power > 0.8
 
 
-def test_oracle_pipeline_on_an_additive_model():
-    """Explaining the true additive risk gives exact attributions: the
-    no-effect feature is excluded, only the quadratic one is flagged as
-    non-linear, and no pair passes the dispersion gate."""
-    from simulations import scenario_spec, simulate_data, TrueRisk, run_pipeline
-    spec = scenario_spec('additive')
-    X, y = simulate_data(spec, 1500, np.random.default_rng(3))
-    _, _, rec_pre, info, rec, _ = run_pipeline(TrueRisk(spec, X.columns), X, y, spec)
-    assert rec_pre['exclusion'] == ['z']
-    assert rec_pre['nonlinear'] == ['x2']
-    assert not len(info['tests']) and rec['interaction'] == {}
+def test_product_term_screen_with_a_curved_correlated_focal_feature():
+    """A continuous partner correlated with a U-shaped focal feature does not
+    absorb its curve: the product-term regression holds size at gamma = 0 and
+    detects gamma = 0.2."""
+    from interaction_simulation import continuous_attributions, continuous_p_value
+    def rate(gamma, reps):
+        rng = np.random.default_rng([20, int(gamma * 1000), 1])
+        return np.mean([continuous_p_value(*continuous_attributions(rng, gamma))[0] < 0.05
+                        for _ in range(reps)])
+    assert rate(0.0, 200) < 0.1
+    assert rate(0.2, 50) > 0.8
