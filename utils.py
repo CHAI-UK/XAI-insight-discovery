@@ -968,6 +968,7 @@ def _screen_recommendations(X, y, shap_sel, continuous, ordinal, cutpoints,
     nonl = {lv: rg.nonlinear(shap_sel[lv][0], shap_sel[lv][1], cand_nl)[0] for lv in shap_sel}
     nonlinear = sorted(set(nonl['low']) | set(nonl['high']))
     dropped = set(exclusion) | {d for f in exclusion for d in groups.get(f, [])}
+    nonlinear = [f for f in nonlinear if f not in dropped]
     wanted = set(rg._to_features(X.columns if features is None else features))
     screen = [c for c in X if c not in dropped and rg._to_features([c])[0] in wanted]
     tabs, diags = [], []
@@ -1236,14 +1237,14 @@ def evaluate_recommendations(rec, X_train, X_test, y_train, y_test, t0, tag, con
     if comparators:
         reports += comparator_models(X_train, X_test, y_train, y_test, list(continuous),
                                      evaluator, calib, baseline_scores=s_base)
-    # rep, s_lasso = coxnet_augmented(X_train, X_test, y_train, y_test, rec, evaluator, calib,
-    #                                 groups=groups, return_scores=True)
-    # d, (lo, hi), p = evaluator.boot_cindex_diff(y_test, s_base, s_lasso)
-    # rep.update(delta_c_vs_baseline=d, delta_ci_low=lo, delta_ci_high=hi, delta_p=p)
-    # d, (lo, hi), p = evaluator.boot_cindex_diff(y_test, s_all, s_lasso)
-    # rep.update(delta_c_vs_cox_all=d, delta_vs_cox_all_ci_low=lo, delta_vs_cox_all_ci_high=hi,
-    #            delta_vs_cox_all_p=p)
-    # reports.append(rep)
+    rep, s_lasso = coxnet_augmented(X_train, X_test, y_train, y_test, rec, evaluator, calib,
+                                    groups=groups, return_scores=True)
+    d, (lo, hi), p = evaluator.boot_cindex_diff(y_test, s_base, s_lasso)
+    rep.update(delta_c_vs_baseline=d, delta_ci_low=lo, delta_ci_high=hi, delta_p=p)
+    d, (lo, hi), p = evaluator.boot_cindex_diff(y_test, s_all, s_lasso)
+    rep.update(delta_c_vs_cox_all=d, delta_vs_cox_all_ci_low=lo, delta_vs_cox_all_ci_high=hi,
+               delta_vs_cox_all_p=p)
+    reports.append(rep)
     tab = pd.DataFrame(reports)
     tab.to_csv(os.path.join(results_folder, f'{tag}_model_comparison.csv'), index=False)
     model, Xtr = final

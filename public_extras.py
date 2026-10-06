@@ -1,31 +1,6 @@
 """
 public_extras.py: additional analyses on the open data sets, requested in
 review and not run on DataLoch.
-
-recommender.py and utils.py are not modified, and nothing here feeds back into
-the recommendations or the model comparison of the main analysis. Every model
-is fitted as evaluate_recommendations fits it, and every rule is the shared
-code called unchanged:
-
-  interaction_sensitivity  the final model plus every pair confirmed in the
-                           reference Cox model, with the parameter budget
-                           ignored (a sensitivity analysis outside the method)
-  calibration_intercept    calibration-in-the-large at t0: log(observed /
-                           expected events), with a 95% CI
-  ph_tests                 global and per-term Schoenfeld tests, and residual
-                           plots, for the models without and with
-                           recommendations
-  events_per_parameter     events per split and subcohort, and events per
-                           parameter of each model
-  coefficient_stability    bootstrap of the final model's coefficients, with
-                           its design held fixed
-  selection_frequency      bootstrap of the two subcohorts, with the forest and
-                           the attributions held fixed, re-running the rules
-  ablation                 every subset of the three recommendation types, and
-                           the gain of each type under every ordering
-  survival_target          attributions of 1 - S(t0) instead of the log risk
-                           score, re-running the rules on them
-  run_extras               all of the above, as the demos call it
 """
 import contextlib
 import io
@@ -196,13 +171,8 @@ def _survival_at(model, X, times):
 
 
 def calibration_in_the_large(model, X, y, t0):
-    """Observed over expected events up to t0 (Crowson et al., Stat Methods Med
-    Res 2016). Follow-up is truncated at t0; the expected count is the sum of
-    the predicted cumulative hazards -log S(min(T_i, t0) | x_i). The intercept
-    log(O/E) is that of a Poisson model with the log cumulative hazard as
-    offset, with standard error 1/sqrt(O). 0 is ideal; a positive value means
-    the model under-predicts risk. The Kaplan-Meier risk at t0 and the mean
-    predicted risk at t0 are given alongside."""
+    """Observed over expected events up to t0.
+    """
     time, event = np.asarray(y['time'], float), np.asarray(y['event'], bool)
     tt = np.minimum(time, t0)
     observed = int((event & (time <= t0)).sum())
@@ -239,14 +209,6 @@ def _ph_frame(X, y):
 
 def schoenfeld_tests(fitter, d, time_transform='km'):
     """Per-term and global Schoenfeld tests of a fitted lifelines CoxPHFitter.
-
-    This is the test of Grambsch and Therneau (1994) as survival::cox.zph
-    computed it before version 3.0, which is also the statistic lifelines
-    reports per term: with g the centred transformed event times, r_k the
-    unscaled Schoenfeld residuals, V the covariance of the coefficients and D
-    the number of events, u = sum_k g_k r_k, the global statistic is
-    D u'Vu / sum g^2 on p degrees of freedom, and the statistic for term j is
-    D (Vu)_j^2 / (V_jj sum g^2) on 1. Returns (per-term table, global row).
     """
     from lifelines.statistics import TimeTransformers
     events, durations, weights = fitter.event_observed, fitter.durations, fitter.weights
@@ -299,8 +261,8 @@ def _residual_plot(fitter, d, path, time_transform='km', title=''):
 def ph_tests(designs, y_train, tag, plot_dir='plots/', out_dir=RESULT_DIR):
     """Schoenfeld tests for each training design in designs ({name: X}),
     fitted as ph_assumption_report fits the final model (same penalty and
-    time transform). Writes <tag>_ph_global.csv, <tag>_ph_terms.csv and
-    plots/<...>/ph_residuals_<tag>_<name>.pdf."""
+    time transform).
+    """
     settings = _defaults(utils.ph_assumption_report, skip=('out',))
     globals_, terms = [], []
     for name, X in designs.items():
@@ -330,9 +292,8 @@ def ph_tests(designs, y_train, tag, plot_dir='plots/', out_dir=RESULT_DIR):
 # =============================================================================
 def events_per_parameter(designs, y_train, y_test, subcohorts, riley_p_max, tag, out_dir=RESULT_DIR):
     """Patients and events per split and subcohort, and parameters and events
-    per parameter (training events / columns) of each model. designs maps
-    model names to training designs; subcohorts maps 'low'/'high' to the
-    patient labels of each subcohort. Writes <tag>_events_per_parameter.csv."""
+    per parameter (training events / columns) of each model.
+    """
     ev_train = int(np.sum(y_train['event']))
     rows = [dict(row='split', name='train', n=len(y_train), events=ev_train),
             dict(row='split', name='test', n=len(y_test), events=int(np.sum(y_test['event'])))]
@@ -353,9 +314,8 @@ def coefficient_stability(X, y, tag, name='Cox_all', n_boot=500, seed=utils.RAND
     """Refit the Cox model on n_boot bootstrap samples of the training data,
     with the design (columns, centring) held fixed, and summarise each
     coefficient: bootstrap SD against the model SE, percentile interval, and
-    the share of samples with the sign of the full-data estimate. Only
-    estimation noise is measured, not the selection of terms (see
-    selection_frequency). Writes <tag>_coefficient_stability.csv."""
+    the share of samples with the sign of the full-data estimate.
+    """
     from joblib import Parallel, delayed
     from lifelines import CoxPHFitter
     full = _fit_cox(X, y).coef_
@@ -414,15 +374,6 @@ def selection_frequency(call, rec, tag, shrinkage=0.9, n_boot=500, seed=utils.RA
                         n_jobs=utils.N_JOBS, out_dir=RESULT_DIR):
     """How often each recommendation is made when the two subcohorts at the
     chosen margin are resampled with replacement.
-
-    The forest, the margin, the subcohort membership and each patient's
-    attributions are held fixed; the rules (exclusion, non-linearity,
-    interaction screen, reference Cox model check on the full training data,
-    parameter budget) are re-run unchanged on each resample. This measures the
-    stability of the screening given the attributions, not of the forest or
-    of the margin search. Writes <tag>_selection_frequency.csv (one row per
-    recommendation made in any resample) and
-    <tag>_selection_frequency_summary.csv.
     """
     from joblib import Parallel, delayed
     X, y, shap_sel, kw = _screen_args(call)
@@ -477,9 +428,11 @@ def ablation(rec, X_train, X_test, y_train, y_test, tag, groups=None, rec_sensit
     """Cox models with every subset of the three recommendation types, each
     compared with the model without recommendations (paired bootstrap, the
     same resamples as the model comparison), and the gain from each type when
-    added in each of the six orders. With rec_sensitivity (the confirmed
+    added in each order. Exclusion is always applied first, so only the order
+    of the non-linear and interaction terms varies (two orders). With
+    rec_sensitivity (the confirmed
     pairs, budget ignored), the lattice is repeated with its interactions.
-    Writes <tag>_ablation_subsets.csv and <tag>_ablation_orderings.csv."""
+    """
     evaluator = evaluator or utils.MetricEval(times=utils.evaluation_times(y_train))
     sources = [('recommended', rec)]
     if rec_sensitivity is not None:
@@ -503,7 +456,9 @@ def ablation(rec, X_train, X_test, y_train, y_test, tag, groups=None, rec_sensit
                 d, (dlo, dhi), p = evaluator.boot_cindex_diff(y_test, scores[()], s)
                 row.update(delta_c_vs_baseline=d, delta_ci_low=dlo, delta_ci_high=dhi, delta_p=p)
             subsets.append(row)
-        for order in itertools.permutations(PARTS):
+        # exclusion is always applied first; only the later types are permuted
+        for rest in itertools.permutations([p for p in PARTS if p != 'exclusion']):
+            order = ('exclusion',) + rest
             for step in range(len(order)):
                 before = tuple(p for p in PARTS if p in order[:step])
                 after = tuple(p for p in PARTS if p in order[:step + 1])
@@ -523,11 +478,7 @@ def ablation(rec, X_train, X_test, y_train, y_test, tag, groups=None, rec_sensit
 # =============================================================================
 class SurvivalTarget:
     """A survival model whose predict() returns exp(1 - S(t0 | x)).
-
-    get_explanations explains log(predict(x)); passed this wrapper, the same
-    explainer, reference rows and seeds explain 1 - S(t0 | x), the predicted
-    risk by t0, instead of the log risk score. n_jobs and set_params are passed
-    through, as get_explanations sets the forest to one thread per worker."""
+    """
 
     def __init__(self, model, t0):
         self.model, self.t0 = model, float(t0)
@@ -552,13 +503,6 @@ class SurvivalTarget:
 def survival_target(call, rec, ex_model, X_test, y_test, t0, tag, nsamples='auto',
                     shrinkage=0.9, groups=None, evaluator=None, out_dir=RESULT_DIR):
     """Re-run the rules on attributions of 1 - S(t0) instead of the log risk.
-
-    The patients (the two subcohorts at the chosen margin), the reference rows
-    and the KernelSHAP seeds are those of the main run; only the explained
-    quantity changes. The recommendations are compared with the main run, and
-    the resulting final model is evaluated on the test set. Writes
-    <tag>_survival_target_recommendations.csv, <tag>_survival_target_models.csv
-    and the attributions <tag>_shap_values_surv_<low|high>.csv.
     """
     X, y, shap_sel, kw = _screen_args(call)
     rec_pre_main, info_main = call['result']
@@ -602,8 +546,8 @@ def run_extras(rec, info, ex_model, X_train, X_test, y_train, y_test, *, t0, tag
                plot_dir='plots/', out_dir=RESULT_DIR, n_boot_coef=500, n_boot_select=500,
                run_survival_target=True):
     """All additional analyses for one data set. info is the second value
-    returned by public_analyses.run_recommend. The settings are written to
-    <tag>_extras_settings.json."""
+    returned by public_analyses.run_recommend.
+    """
     groups = dict(groups or {})
     call, settings = info['screen_call'], info['settings']
     shrinkage = settings['shrinkage']

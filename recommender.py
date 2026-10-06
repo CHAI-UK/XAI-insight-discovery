@@ -93,7 +93,7 @@ class CoxScoreTester:
 class Recommender:
 
     def __init__(self, res_dir='data/result', frac=0.05, alpha=0.05,
-                 n_boot=500, min_delta_r2=0.01, min_cell=100, n_bins=10,
+                 n_boot=500, min_delta_r2=0.02, min_cell=100, n_bins=10,
                  df_spline=4, residual_thresh=0.05, min_abs_effect=0.10,
                  n_boot_screen=300, se_method='sandwich', seed=1,
                  dispersion_thresh=0.10,
@@ -141,8 +141,7 @@ class Recommender:
         """Indicator columns for few-valued x, restricted cubic spline for
         continuous x. Binning a continuous variable and using bin means would
         leave h(x) varying inside each bin and count that as residual
-        dispersion; on simulated additive curvature that inflated the residual
-        fraction from 0.006 to 0.29."""
+        dispersion"""
         x = np.asarray(x, float)
         u = np.unique(x[np.isfinite(x)])
         if u.size < 2:
@@ -489,6 +488,11 @@ class Recommender:
         if (not np.all(np.isfinite(b)) or not np.all(np.isfinite(V))
                 or np.max(np.diag(V)) <= (1e-8 * max(scale, 1e-300)) ** 2):
             return np.nan, 1.0
+        tol = 1e-8 * max(abs(scale), 1e-300)
+        if np.max(np.abs(V)) <= tol ** 2:
+            if np.max(np.abs(b)) <= tol:
+                return 0.0, 1.0
+            return np.inf, 0.0
         stat = float(b @ np.linalg.pinv(V) @ b)
         return stat, float(chi2.sf(stat, b.size))
 
@@ -996,13 +1000,14 @@ class Recommender:
         Three cases: the feature is present as-is; it is a one-hot parent whose
         dummies carry the name as a prefix (SHAP columns carry the parent name,
         the model matrix carries the dummies); or it is an ordinal feature that
-        the non-linearity step has just expanded into `name_lvl*` indicators, in
+        the non-linearity step has expanded into indicators or spline columns, in
         which case an interaction on it must attach to every level, not be
         silently dropped for a missing main effect.
         """
         if name in frame.columns:
             return [name]
-        expanded = [c for c in frame.columns if c.startswith(name + '_lvl')]
+        expanded = [c for c in frame.columns
+                    if c.startswith((name + '_lvl', name + '_spline'))]
         if expanded:
             return expanded
         return [c for c in groups.get(name, []) if c in frame.columns]
@@ -1012,7 +1017,10 @@ class Recommender:
               hierarchy='drop', log=None, n_bins=10):
         """variant: baseline | exclusion | nonlinear | interaction | all.
         hierarchy='drop' removes an interaction whose main effect was excluded;
-        'keep' restores the main effect instead."""
+        'keep' restores the main effect instead.
+        Few-valued nonlinear features use indicators; others retain their
+        linear term and add a quadratic, centered using the training mean.
+        """
         tr, te = X_train.copy(), X_test.copy()
         groups = groups or {}
         excl = rec['exclusion'] if variant in ('exclusion', 'all') else []
@@ -1043,7 +1051,8 @@ class Recommender:
                 drop_nl.append(f)
                 n_ind += u.size - 1
             else:
-                m = float(tr[f].mean())          # training mean, both frames
+                # Restore quadratic terms; use the training mean for both sets.
+                m = float(tr[f].mean())
                 tr[f], te[f] = tr[f] - m, te[f] - m
                 new_tr[f + '_quad'] = tr[f].to_numpy(float) ** 2
                 new_te[f + '_quad'] = te[f].to_numpy(float) ** 2
@@ -1083,4 +1092,3 @@ class Recommender:
               f"{sum('__x__' in c for c in tr.columns)} interaction terms, "
               f"{len(drop)} dropped, {n_quad} quadratics, {n_ind} indicator columns")
         return tr, te
-

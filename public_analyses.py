@@ -1,19 +1,6 @@
 """
 public_analyses.py: outputs for the open data sets that the shared code
 computes but does not save, and a record of the settings each run used.
-
-recommender.py and utils.py are the code that produced the DataLoch results
-and are not modified. Everything here calls them unchanged:
-
-  * run_recommend        calls utils.recommend() with the demo's arguments and
-                         saves, for the chosen margin, the attributions, the
-                         exclusion and non-linearity tables, the feature-pattern
-                         diagnostics and the parameter-budget log.
-  * write_run_record     every setting the run used, read from the call and
-                         from the defaults of the shared code, plus package
-                         versions and the git commit.
-  * final_cox_table      hazard ratios with 95% CIs for the Cox model with all
-                         recommendations.
 """
 import contextlib
 import inspect
@@ -41,9 +28,8 @@ PACKAGES = ('numpy', 'pandas', 'scikit-learn', 'scikit-survival', 'shap', 'scipy
 @contextlib.contextmanager
 def capture_screens():
     """Record every call of utils._screen_recommendations, which
-    choose_margin makes once per margin evaluated. Each call's arguments and
-    result are stored and the result is passed back unchanged, so the run
-    itself is not altered."""
+    choose_margin makes once per margin evaluated.
+    """
     calls, original = [], utils._screen_recommendations
     signature = inspect.signature(original)
 
@@ -72,11 +58,6 @@ def _chosen_call(calls, summary):
 
 def screen_tables(call):
     """Exclusion and non-linearity tables of one screening call.
-
-    _screen_recommendations returns only the resulting feature lists. The
-    tables are recomputed here with a fresh Recommender built with the same
-    settings, calling the rules in the same order (exclusion for each
-    subcohort, then non-linearity), so the bootstrap draws are the same ones.
     """
     a = call['args']
     rec, _ = call['result']
@@ -101,23 +82,6 @@ def screen_tables(call):
 
 
 def run_recommend(*args, tag, out_dir=RESULT_DIR, **kwargs):
-    """utils.recommend(*args, tag=tag, **kwargs), saving in addition:
-
-      <tag>_exclusion_tests.csv     rule 1 for every feature, per subcohort
-      <tag>_nonlinear_tests.csv     rule 2 for every candidate, per subcohort
-      <tag>_feature_screen.csv      within-value dispersion and pattern of each
-                                    feature, and whether it was screened
-      <tag>_budget_log.csv          pairs offered to the parameter budget, and
-                                    why each did or did not enter
-      <tag>_shap_values_<low|high>.csv, <tag>_shap_data_<low|high>.csv
-                                    attributions and feature values of the
-                                    two subcohorts at the chosen margin
-
-    Returns recommend()'s (rec, info), with info['settings'] holding every
-    argument recommend() ran with, defaults included, and info['screen_call']
-    the screening call at the chosen margin (its arguments and result), for
-    public_extras.
-    """
     bound = inspect.signature(utils.recommend).bind(*args, tag=tag, **kwargs)
     bound.apply_defaults()
     with capture_screens() as calls:
@@ -171,12 +135,6 @@ def _jsonable(v):
 
 def write_run_record(tag, *, split, ex_model, t0, info, eval_times, out_dir=RESULT_DIR):
     """Write <tag>_run_settings.json: the settings the run used.
-
-    Values passed by the demo (split, t0, the recommend() call) are recorded
-    as passed; everything else is read from the defaults of the shared code
-    that the demos rely on, so the record cannot drift from the code. A few
-    constants are fixed inside function bodies and are copied here by hand;
-    they are marked as such.
     """
     rsf = {k: v for k, v in ex_model.get_params().items()
            if k in ('n_estimators', 'min_samples_split', 'min_samples_leaf',
@@ -231,27 +189,6 @@ def export_coefficients(model, X_train, y_train, out, penalizer=0.0, tol=1e-2):
     """
     Coefficient table with hazard ratios and confidence intervals for a
     fitted model.
-
-    `model` is an already-fitted scikit-survival CoxPHSurvivalAnalysis. Its
-    point estimates (coef_, HR) are read directly rather than re-derived,
-    since they are the numbers discrimination and calibration were actually
-    computed from.
-
-    scikit-survival does not compute a covariance matrix, so it has no
-    standard errors, no P values, and no confidence intervals to read.
-    lifelines.CoxPHFitter is used only to obtain those, on the same design
-    matrix.
-
-    Tie handling: lifelines' CoxPHFitter always uses Efron's approximation
-    and exposes no argument to change that. scikit-survival's
-    CoxPHSurvivalAnalysis defaults to Breslow's method via its own `ties`
-    argument. With coarse-granularity follow-up times, tied event times are
-    common, and Breslow vs. Efron can give visibly different coefficients,
-    not just rounding noise. Rather than trying to make lifelines match
-    scikit-survival, fit the scikit-survival model itself with
-    ties='efron' if the two are meant to agree. The point estimates from
-    the two fits are compared here regardless, and a warning is printed if
-    they diverge by more than `tol` on the log-hazard scale.
     """
     from lifelines import CoxPHFitter
 
@@ -289,12 +226,6 @@ def export_coefficients(model, X_train, y_train, out, penalizer=0.0, tol=1e-2):
 
 def final_cox_table(rec, X_train, y_train, tag, groups=None, out_dir=RESULT_DIR):
     """Hazard ratios with 95% CIs for the Cox model with all recommendations,
-    written to <tag>_final_cox_hr.tsv.
-
-    The model is refitted exactly as evaluate_recommendations fits Cox_all
-    (the training design depends on the training data only), and its
-    coefficients are checked against the <tag>_final_cox_coefficients.csv that
-    evaluate_recommendations wrote.
     """
     Xtr, _ = Recommender.apply(X_train, X_train, rec, variant='all', groups=groups)
     model = CoxPHSurvivalAnalysis(alpha=_defaults(utils.fit_and_score)['alpha'],

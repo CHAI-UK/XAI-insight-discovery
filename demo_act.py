@@ -21,10 +21,7 @@ X, y = load_aids()
 y = as_surv(y)
 
 cat_cols = ['hemophil', 'karnof', 'sex', 'strat2', 'tx']     # binary, and karnof (ordinal)
-nom_cols = ['ivdrug', 'raceth']                              # nominal, more than 2 categories
-# txgrp is left out: tx (indinavir or not) is the randomised treatment, and
-# txgrp differs from it only in levels 3 and 4 (3 patients, the stavudine
-# arms), so the two are collinear and the Cox coefficients are not identified
+nom_cols = ['ivdrug', 'raceth', 'txgrp']                     # nominal, more than 2 categories
 con_cols = ['age', 'cd4', 'priorzdv']
 # karnof is ordinal; its levels are given in order, since sorting the strings
 # would put '100' before '70'
