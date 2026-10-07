@@ -2,9 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata from this file."
 type: software
 title: >-
-  Explainable AI to Guide the Design of Interpretable Cox Models, Applied to
-  Falls and Related Injuries in Adults Aged 50 Years or Older: Algorithm
-  Development and Validation
+  Explainable AI to Guide the Design of Interpretable Prediction Models From High-Dimensional Data, Applied to Falls and Related Injuries in Adults Aged 50 Years or Older: Algorithm Development and Validation
 abstract: >-
   Code for the Exploratory AI Recommender: feature attributions of a random
   survival forest are turned into recommendations (features to exclude,
