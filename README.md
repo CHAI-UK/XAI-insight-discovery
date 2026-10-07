@@ -1,4 +1,5 @@
 # Explainable AI to Guide the Design of Interpretable Prediction Models From High-Dimensional Data, Applied to Falls and Related Injuries in Adults Aged 50 Years or Older: Algorithm Development and Validation
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23216890.svg)](https://doi.org/10.5281/zenodo.23216890)
 This code repository can be used to replicate the numerical experiments performed on open data sets (GBSG2, ACT and peakVO2).
 
 The recommendation rules (`recommender.py`) and the evaluation tools (`utils.py`) are the same code as used for the analysis of the main cohort (DataLoch), and each demo calls them through the same entry points (`recommend` and `evaluate_recommendations`). `public_analyses.py` adds outputs for the open data sets without changing that code: `run_recommend` calls `recommend` unchanged and also saves the tables it computes but does not return, `final_cox_table` adds hazard ratios with confidence intervals, and `write_run_record` saves the settings of each run. `public_extras.py` holds additional analyses requested in review, run on the open data sets only (see below). The data processing specific to DataLoch is not released, for data security reasons. The version of the code that produced the results in the paper is tagged `dataloch-run`.
@@ -116,6 +117,10 @@ The tests also run on every push (GitHub Actions, `.github/workflows/tests.yml`)
 GBSG2 and ACT are loaded from scikit-survival. `data/peakvo2.csv` is the `peakVO2` data set of the R package randomForestSRC (2,231 patients with systolic heart failure, 39 predictors, all-cause death); `data/peakvo2_source.txt` describes its source and conversion.
 
 ## Citation
+The code is archived on Zenodo:
+- all versions (resolves to the latest): [10.5281/zenodo.23216890](https://doi.org/10.5281/zenodo.23216890);
+- version 1.0.0, the code for the paper (tag `v1.0.0`, commit `cebb78c`): [10.5281/zenodo.23216891](https://doi.org/10.5281/zenodo.23216891).
+
 Citation metadata (authors, affiliations, licence) is in [`CITATION.cff`](CITATION.cff); GitHub shows it under "Cite this repository".
 
 ## Licence

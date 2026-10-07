@@ -50,6 +50,14 @@ authors:
     affiliation: >-
       School of Engineering, University of Edinburgh; Causality in Healthcare
       AI Hub (CHAI)
+doi: 10.5281/zenodo.23216890
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23216890
+    description: All versions (concept DOI; resolves to the latest version)
+  - type: doi
+    value: 10.5281/zenodo.23216891
+    description: Version 1.0.0, the code for the paper
 repository-code: "https://github.com/CHAI-UK/XAI-insight-discovery"
 license: MIT
 keywords:
