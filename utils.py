@@ -286,8 +286,8 @@ def make_plot(df_shap, org_df, filename, plot_type='scatter', xlabel='SHAP value
     ax.spines['right'].set_visible(False)
 
     plt.grid(True, axis='both', linestyle='--', alpha=0.5)
-    plt.savefig(f'plots/{filename}.png', dpi=1000)
     plt.tight_layout()
+    plt.savefig(f'plots/{filename}.png', dpi=1000, bbox_inches='tight')
     plt.show()
 
 
